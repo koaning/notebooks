@@ -18,7 +18,7 @@ def _():
     return alt, diskcache, json, mo, os, pd, shutil, tempfile, zlib
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     # DiskCache Benchmark: Pickle vs Compressed JSON
@@ -207,7 +207,7 @@ def _(benchmark_df, mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ---
@@ -228,6 +228,17 @@ def _(mo):
 
     The trade-off: compression takes a bit more CPU time to pack/unpack,
     and JSONDisk only works with JSON-friendly data (no custom Python objects).
+
+    **Important limitation:** Each cache entry is compressed independently. If you store
+    the same value under 1000 different keys, zlib compresses each one separately - it
+    can't see patterns *across* entries. Compression only helps with repetition *within*
+    a single value, not across your entire cache.
+
+    **When Pickle wins:** For small, varied data without much internal repetition (like
+    the "Normal" case), Pickle's binary format can actually be more compact than JSON.
+    JSON is verbose - it writes full key names as strings, uses quotes everywhere, and
+    spells out `true`/`false`. Pickle encodes these as compact bytes. Compression can't
+    always overcome that overhead if there's little redundancy to exploit.
     """)
     return
 
