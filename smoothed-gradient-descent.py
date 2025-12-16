@@ -143,6 +143,99 @@ def _(Z_hard, Z_sinc, np, plt, s_vals, x_vals):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## Intuition
+
+    How does the smoothing work? We convolve $f(x)$ with a Gaussian:
+
+    $$g(x, \sigma) = \int_{-\infty}^{\infty} f(t) \cdot \mathcal{N}(t; x, \sigma) \, dt$$
+
+    This integral computes a weighted average of $f$, where points closer to $x$ get higher weight.
+
+    **Use the sliders below to explore how different $(x, \sigma)$ values produce different pixel values.**
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    x_slider = mo.ui.slider(start=-14.0, stop=14.0, step=0.1, value=0.0, label="x")
+    sigma_slider = mo.ui.slider(start=0.1, stop=3.0, step=0.1, value=1.0, label="σ")
+    mo.hstack([x_slider, sigma_slider], justify="start")
+    return sigma_slider, x_slider
+
+
+@app.cell(hide_code=True)
+def _(
+    Z_hard,
+    hard_func,
+    mo,
+    norm,
+    np,
+    plt,
+    s_vals,
+    sigma_slider,
+    smoothed_value,
+    x_slider,
+    x_vals,
+):
+    x_pos = x_slider.value
+    sigma_val = sigma_slider.value
+
+    fig_int, (ax_conv, ax_heat) = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Left: Function, Gaussian, product, filled area
+    ax_conv.plot(x_vals, hard_func(x_vals), 'C0-', linewidth=1.5, label=r'$f(x)$')
+
+    gaussian = norm.pdf(x_vals, loc=x_pos, scale=sigma_val)
+    scale = 5
+    ax_conv.plot(x_vals, gaussian * scale, 'C1-', linewidth=1.5,
+                 label=rf'$\mathcal{{N}}(\mu={x_pos:.1f}, \sigma={sigma_val:.1f})$')
+
+    product = hard_func(x_vals) * gaussian
+    ax_conv.plot(x_vals, product * scale, 'C2-', linewidth=2, label=r'$f(x) \cdot \mathcal{N}$')
+    ax_conv.fill_between(x_vals, 0, product * scale, alpha=0.3, color='C2')
+    ax_conv.axvline(x=x_pos, color='red', linestyle='--', alpha=0.5)
+
+    ax_conv.set_xlabel('x')
+    ax_conv.set_ylim(-8, 12)
+    ax_conv.set_xlim(-15, 15)
+    ax_conv.legend(loc='upper right', fontsize=9)
+    ax_conv.set_title('Gaussian convolution')
+
+    # Right: Heatmap with pixel
+    _X_grid, _S_grid = np.meshgrid(x_vals, s_vals)
+    ax_heat.contourf(_X_grid, _S_grid, Z_hard, levels=20, cmap='viridis')
+    ax_heat.scatter([x_pos], [sigma_val], s=200, c='white', marker='o',
+                    edgecolors='red', linewidths=3, zorder=5)
+
+    pixel_val = smoothed_value(hard_func, x_pos, sigma_val)
+    ax_heat.set_xlabel('x')
+    ax_heat.set_ylabel('smoothing (σ)')
+    ax_heat.set_title(f'Pixel value = {pixel_val:.2f}')
+    plt.colorbar(ax_heat.collections[0], ax=ax_heat)
+
+    plt.tight_layout()
+
+    mo.vstack([
+        fig_int,
+        mo.md(f"The green shaded area on the left (integral) equals the pixel value **{pixel_val:.2f}** on the right.")
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    The key insight: instead of optimising $f(x)$ directly, we optimise in the $(x, s)$ space.
+    Starting with high smoothing, the landscape is smooth and gradients point toward the global optimum.
+    As we reduce $s$ toward 0, we converge to the true optimum of $f(x)$.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Gradient Field Visualization
 
     The arrows show the gradient direction at each point. Notice how at high smoothing (top),
@@ -249,39 +342,68 @@ def _(np, smoothed_value):
 
 @app.cell(hide_code=True)
 def _(np):
-    def sample_based_optimize(f, mu0, sigma0, alpha_mu=0.5, alpha_sigma=0.8, n_samples=50, steps=100, seed=42):
+    def es_on_f(f, mu0, sigma0, alpha_mu=0.3, alpha_sigma=0.05, n_samples=100, steps=100, seed=42):
         """
-        Evolution strategies style optimization in 2D (x, σ) space.
+        ES on f(x) - Original blogpost style.
 
-        Instead of computing gradients numerically, we sample from N(μ, σ)
-        and use the samples to estimate how to update both μ and σ.
-
-        Key insight: samples that land in high-f(x) regions "pull" μ toward them.
-        This allows escaping local optima through stochastic exploration.
+        σ is the search distribution width, not a dimension being optimized.
+        Samples x ~ N(μ, σ), evaluates raw f(x), with normalization.
         """
         np.random.seed(seed)
         trajectory = [(mu0, sigma0)]
         mu, sigma = mu0, sigma0
 
         for _ in range(steps):
-            # Sample from current distribution
             samples = np.random.normal(mu, sigma, n_samples)
             f_vals = f(samples)
 
-            # Score function gradient for mu: E[f(x) * (x - mu) / sigma^2]
-            d_mu = alpha_mu * np.mean(f_vals * (samples - mu)) / (sigma**2)
+            # Normalize rewards (baseline subtraction + scaling)
+            f_norm = (f_vals - np.mean(f_vals)) / (np.std(f_vals) + 1e-8)
 
-            # Score function gradient for sigma: E[f(x) * ((x-mu)^2/sigma^3 - 1/sigma)] / 2
-            d_sigma = alpha_sigma * np.mean(f_vals * ((samples - mu)**2 / sigma**3 - 1/sigma)) / 2
+            d_mu = alpha_mu * np.mean(f_norm * (samples - mu)) / sigma
+            d_sigma = alpha_sigma * np.mean(f_norm * ((samples - mu)**2 / sigma**2 - 1)) - 0.01
 
-            # Update parameters
             mu = mu + d_mu
-            sigma = np.clip(sigma + d_sigma, 0.05, 10.0)
-
+            sigma = np.clip(sigma + d_sigma, 0.1, 6.0)
             trajectory.append((mu, sigma))
 
         return np.array(trajectory)
-    return (sample_based_optimize,)
+    return (es_on_f,)
+
+
+@app.cell(hide_code=True)
+def _(np, smoothed_value):
+    def es_on_g(f, x0, s0, eps_x=0.5, eps_s=0.2, alpha=0.3, n_samples=50, steps=100, seed=42):
+        """
+        ES on g(x,σ) - True 2D optimization.
+
+        Samples perturbations in both x and σ, evaluates smoothed g(x,σ).
+        Actually navigates the 2D landscape.
+        """
+        np.random.seed(seed)
+        trajectory = [(x0, s0)]
+        x, s = x0, s0
+
+        for _ in range(steps):
+            dx = np.random.normal(0, eps_x, n_samples)
+            ds = np.random.normal(0, eps_s, n_samples)
+
+            x_samples = x + dx
+            s_samples = np.clip(s + ds, 0.1, 6.0)
+
+            # Evaluate the SMOOTHED function g(x, σ)
+            g_vals = np.array([smoothed_value(f, xi, si) for xi, si in zip(x_samples, s_samples)])
+            g_norm = (g_vals - np.mean(g_vals)) / (np.std(g_vals) + 1e-8)
+
+            d_x = alpha * np.mean(g_norm * dx) / eps_x
+            d_s = alpha * np.mean(g_norm * ds) / eps_s - 0.005
+
+            x = x + d_x
+            s = np.clip(s + d_s, 0.1, 6.0)
+            trajectory.append((x, s))
+
+        return np.array(trajectory)
+    return (es_on_g,)
 
 
 @app.cell
@@ -304,12 +426,13 @@ def _(mo):
 def _(
     Z_hard,
     Z_sinc,
+    es_on_f,
+    es_on_g,
     gradient_descent_smoothed,
     hard_func,
     np,
     plt,
     s_vals,
-    sample_based_optimize,
     sinc_func,
     traj_func_dropdown,
     traj_s0_slider,
@@ -325,19 +448,21 @@ def _(
     _func = sinc_func if _func_name == "sinc" else hard_func
     _Z = Z_sinc if _func_name == "sinc" else Z_hard
 
-    # Compute both trajectories from same starting point
+    # Compute all 3 trajectories from same starting point
     _traj_grad = gradient_descent_smoothed(_func, x0=_x0, s0=_s0, steps=_steps)
-    _traj_sample = sample_based_optimize(_func, mu0=_x0, sigma0=_s0, steps=_steps, seed=42)
+    _traj_es_f = es_on_f(_func, mu0=_x0, sigma0=_s0, steps=_steps, seed=42)
+    _traj_es_g = es_on_g(_func, x0=_x0, s0=_s0, steps=_steps, seed=42)
 
-    # Single chart comparing both methods
+    # Single chart comparing all 3 methods
     fig_traj, ax_traj = plt.subplots(figsize=(10, 6))
 
     _X2, _S2 = np.meshgrid(x_vals, s_vals)
     ax_traj.contourf(_X2, _S2, _Z, levels=20, cmap='viridis')
 
-    # Red for gradient, green for sample-based
-    ax_traj.plot(_traj_grad[:, 0], _traj_grad[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
-    ax_traj.plot(_traj_sample[:, 0], _traj_sample[:, 1], 'g.-', linewidth=2, markersize=3, label='Sample-based')
+    # Red for gradient, green for ES on f(x), blue for ES on g(x,σ)
+    ax_traj.plot(_traj_grad[:, 0], _traj_grad[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient on g')
+    ax_traj.plot(_traj_es_f[:, 0], _traj_es_f[:, 1], 'g.-', linewidth=2, markersize=3, label='ES on f(x)')
+    ax_traj.plot(_traj_es_g[:, 0], _traj_es_g[:, 1], 'b.-', linewidth=2, markersize=3, label='ES on g(x,σ)')
     ax_traj.scatter([_x0], [_s0], s=150, c='yellow', marker='*', zorder=10, edgecolors='black', label='Start')
 
     ax_traj.set_xlabel('x')
@@ -348,99 +473,6 @@ def _(
 
     plt.tight_layout()
     fig_traj
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## Intuition
-
-    How does the smoothing work? We convolve $f(x)$ with a Gaussian:
-
-    $$g(x, \sigma) = \int_{-\infty}^{\infty} f(t) \cdot \mathcal{N}(t; x, \sigma) \, dt$$
-
-    This integral computes a weighted average of $f$, where points closer to $x$ get higher weight.
-
-    **Use the sliders below to explore how different $(x, \sigma)$ values produce different pixel values.**
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    x_slider = mo.ui.slider(start=-14.0, stop=14.0, step=0.1, value=0.0, label="x")
-    sigma_slider = mo.ui.slider(start=0.1, stop=3.0, step=0.1, value=1.0, label="σ")
-    mo.hstack([x_slider, sigma_slider], justify="start")
-    return sigma_slider, x_slider
-
-
-@app.cell(hide_code=True)
-def _(
-    Z_hard,
-    hard_func,
-    mo,
-    norm,
-    np,
-    plt,
-    s_vals,
-    sigma_slider,
-    smoothed_value,
-    x_slider,
-    x_vals,
-):
-    x_pos = x_slider.value
-    sigma_val = sigma_slider.value
-
-    fig_int, (ax_conv, ax_heat) = plt.subplots(1, 2, figsize=(12, 5))
-
-    # Left: Function, Gaussian, product, filled area
-    ax_conv.plot(x_vals, hard_func(x_vals), 'C0-', linewidth=1.5, label=r'$f(x)$')
-
-    gaussian = norm.pdf(x_vals, loc=x_pos, scale=sigma_val)
-    scale = 5
-    ax_conv.plot(x_vals, gaussian * scale, 'C1-', linewidth=1.5,
-                 label=rf'$\mathcal{{N}}(\mu={x_pos:.1f}, \sigma={sigma_val:.1f})$')
-
-    product = hard_func(x_vals) * gaussian
-    ax_conv.plot(x_vals, product * scale, 'C2-', linewidth=2, label=r'$f(x) \cdot \mathcal{N}$')
-    ax_conv.fill_between(x_vals, 0, product * scale, alpha=0.3, color='C2')
-    ax_conv.axvline(x=x_pos, color='red', linestyle='--', alpha=0.5)
-
-    ax_conv.set_xlabel('x')
-    ax_conv.set_ylim(-8, 12)
-    ax_conv.set_xlim(-15, 15)
-    ax_conv.legend(loc='upper right', fontsize=9)
-    ax_conv.set_title('Gaussian convolution')
-
-    # Right: Heatmap with pixel
-    _X_grid, _S_grid = np.meshgrid(x_vals, s_vals)
-    ax_heat.contourf(_X_grid, _S_grid, Z_hard, levels=20, cmap='viridis')
-    ax_heat.scatter([x_pos], [sigma_val], s=200, c='white', marker='o',
-                    edgecolors='red', linewidths=3, zorder=5)
-
-    pixel_val = smoothed_value(hard_func, x_pos, sigma_val)
-    ax_heat.set_xlabel('x')
-    ax_heat.set_ylabel('smoothing (σ)')
-    ax_heat.set_title(f'Pixel value = {pixel_val:.2f}')
-    plt.colorbar(ax_heat.collections[0], ax=ax_heat)
-
-    plt.tight_layout()
-
-    mo.vstack([
-        fig_int,
-        mo.md(f"The green shaded area on the left (integral) equals the pixel value **{pixel_val:.2f}** on the right.")
-    ])
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    The key insight: instead of optimising $f(x)$ directly, we optimise in the $(x, s)$ space.
-    Starting with high smoothing, the landscape is smooth and gradients point toward the global optimum.
-    As we reduce $s$ toward 0, we converge to the true optimum of $f(x)$.
-    """)
     return
 
 
