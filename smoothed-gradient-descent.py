@@ -39,7 +39,7 @@ def _(mo):
 def _(np):
     # Shared x values for all plots
     x_vals = np.linspace(-15, 15, 1000)
-    s_vals = np.linspace(0.01, 3.0, 40)
+    s_vals = np.linspace(0.01, 5.0, 40)
     return s_vals, x_vals
 
 
@@ -143,6 +143,60 @@ def _(Z_hard, Z_sinc, np, plt, s_vals, x_vals):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## Gradient Field Visualization
+
+    The arrows show the gradient direction at each point. Notice how at high smoothing (top),
+    gradients consistently point toward the global maximum at $x=0$. At low smoothing (bottom),
+    the gradients become chaotic with many local optima.
+    """)
+    return
+
+
+@app.cell
+def _(Z_sinc, np, plt, s_vals, sinc_func, smoothed_value, x_vals):
+    # Compute gradient field for visualization
+    # Use a coarser grid for the arrows, derived from x_vals and s_vals
+    x_arrow = np.linspace(x_vals.min() + 1, x_vals.max() - 1, 20)
+    s_arrow = np.linspace(s_vals.min() + 0.1, s_vals.max() - 0.1, 15)
+
+    U = np.zeros((len(s_arrow), len(x_arrow)))  # gradient in x direction
+    V = np.zeros((len(s_arrow), len(x_arrow)))  # gradient in s direction
+    eps = 1e-4
+
+    for i, s in enumerate(s_arrow):
+        for j, x in enumerate(x_arrow):
+            # Gradient in x
+            g_x_plus = smoothed_value(sinc_func, x + eps, s)
+            g_x_minus = smoothed_value(sinc_func, x - eps, s)
+            U[i, j] = (g_x_plus - g_x_minus) / (2 * eps)
+
+            # Gradient in s - this shows how the landscape wants to move in s direction
+            g_s_plus = smoothed_value(sinc_func, x, s + eps)
+            g_s_minus = smoothed_value(sinc_func, x, max(0.01, s - eps))
+            V[i, j] = (g_s_plus - g_s_minus) / (2 * eps)
+
+    fig_quiver, ax_quiver = plt.subplots(figsize=(10, 6))
+
+    _X_grid, _S_grid = np.meshgrid(x_vals, s_vals)
+    ax_quiver.contourf(_X_grid, _S_grid, Z_sinc, levels=20, cmap='viridis', alpha=0.8)
+
+    _X_arrow, _S_arrow = np.meshgrid(x_arrow, s_arrow)
+    # Normalize for display - show direction only
+    magnitude = np.sqrt(U**2 + V**2 + 0.001)
+    ax_quiver.quiver(_X_arrow, _S_arrow, U/magnitude, V/magnitude, color='white', alpha=0.9, scale=30)
+
+    ax_quiver.set_xlabel('x')
+    ax_quiver.set_ylabel('smoothing (σ)')
+    ax_quiver.set_title('Gradient field: arrows show steepest ascent direction in (x, σ) space')
+    plt.colorbar(ax_quiver.collections[0], ax=ax_quiver)
+
+    fig_quiver
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Gradient Descent in Smoothed Space
 
     Key insight:
@@ -153,27 +207,39 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(np, smoothed_value):
-    def gradient_descent_smoothed(f, x0, s0, lr_x=0.1, lr_s=0.05, steps=100, eps=1e-4):
+    def gradient_descent_smoothed(f, x0, s0, lr_x=0.5, lr_s=0.1, steps=100, eps=1e-4, s_bias=-0.01):
         """
-        Gradient descent on the smoothed landscape.
-        Maximizes in x, decreases s toward 0.
+        Gradient descent on the smoothed landscape g(x, s).
+        Follows gradients in BOTH x and s directions.
+
+        The key insight: s is a searchable dimension, not just an annealing schedule.
+        We maximize g in x direction, and follow gradient in s direction with a small
+        bias toward lower s (to eventually converge to the true optimum).
         """
         trajectory = [(x0, s0)]
         x, s = x0, s0
 
-        for _ in range(steps):
+        for step in range(steps):
             # Numerical gradient in x (for maximization)
-            g_plus = smoothed_value(f, x + eps, s)
-            g_minus = smoothed_value(f, x - eps, s)
-            grad_x = (g_plus - g_minus) / (2 * eps)
+            g_x_plus = smoothed_value(f, x + eps, s)
+            g_x_minus = smoothed_value(f, x - eps, s)
+            grad_x = (g_x_plus - g_x_minus) / (2 * eps)
+
+            # Numerical gradient in s - this is the key!
+            # Follow the gradient in s direction too
+            g_s_plus = smoothed_value(f, x, s + eps)
+            g_s_minus = smoothed_value(f, x, max(0.01, s - eps))
+            grad_s = (g_s_plus - g_s_minus) / (2 * eps)
 
             # Update x (gradient ascent to find maximum)
             x = x + lr_x * grad_x
 
-            # Decrease smoothing toward 0
-            s = max(0.01, s - lr_s * s)
+            # Update s: follow gradient + small bias toward lower s
+            # The bias ensures we eventually converge to s≈0
+            s = s + lr_s * grad_s + s_bias
+            s = max(0.01, min(3.0, s))  # clamp to valid range
 
             trajectory.append((x, s))
 
@@ -183,60 +249,140 @@ def _(np, smoothed_value):
 
 @app.cell
 def _(gradient_descent_smoothed, hard_func, sinc_func):
-    # Compute trajectories from different starting points
-    traj_sinc_1 = gradient_descent_smoothed(sinc_func, x0=-8.0, s0=0, steps=80)
-    traj_sinc_2 = gradient_descent_smoothed(sinc_func, x0=3.0, s0=0, steps=80)
+    # Compute gradient-based trajectories
+    traj_grad_sinc_1 = gradient_descent_smoothed(sinc_func, x0=-8.0, s0=3.0, steps=200)
+    traj_grad_sinc_2 = gradient_descent_smoothed(sinc_func, x0=6.0, s0=3.0, steps=200)
 
-    traj_hard_1 = gradient_descent_smoothed(hard_func, x0=-3.5, s0=2.5, steps=80)
-    traj_hard_2 = gradient_descent_smoothed(hard_func, x0=2.5, s0=2.5, steps=80)
-    return traj_hard_1, traj_hard_2, traj_sinc_1, traj_sinc_2
+    traj_grad_hard_1 = gradient_descent_smoothed(hard_func, x0=-8.0, s0=3.0, steps=200)
+    traj_grad_hard_2 = gradient_descent_smoothed(hard_func, x0=6.0, s0=3.0, steps=200)
+    return (
+        traj_grad_hard_1,
+        traj_grad_hard_2,
+        traj_grad_sinc_1,
+        traj_grad_sinc_2,
+    )
+
+
+@app.cell(hide_code=True)
+def _(np):
+    def sample_based_optimize(f, mu0, sigma0, alpha_mu=0.5, alpha_sigma=0.8, n_samples=50, steps=100, seed=42):
+        """
+        Evolution strategies style optimization in 2D (x, σ) space.
+
+        Instead of computing gradients numerically, we sample from N(μ, σ)
+        and use the samples to estimate how to update both μ and σ.
+
+        Key insight: samples that land in high-f(x) regions "pull" μ toward them.
+        This allows escaping local optima through stochastic exploration.
+        """
+        np.random.seed(seed)
+        trajectory = [(mu0, sigma0)]
+        mu, sigma = mu0, sigma0
+
+        for _ in range(steps):
+            # Sample from current distribution
+            samples = np.random.normal(mu, sigma, n_samples)
+            f_vals = f(samples)
+
+            # Score function gradient for mu: E[f(x) * (x - mu) / sigma^2]
+            d_mu = alpha_mu * np.mean(f_vals * (samples - mu)) / (sigma**2)
+
+            # Score function gradient for sigma: E[f(x) * ((x-mu)^2/sigma^3 - 1/sigma)] / 2
+            d_sigma = alpha_sigma * np.mean(f_vals * ((samples - mu)**2 / sigma**3 - 1/sigma)) / 2
+
+            # Update parameters
+            mu = mu + d_mu
+            sigma = np.clip(sigma + d_sigma, 0.05, 10.0)
+
+            trajectory.append((mu, sigma))
+
+        return np.array(trajectory)
+    return (sample_based_optimize,)
 
 
 @app.cell
+def _(hard_func, sample_based_optimize, sinc_func):
+    # Compute sample-based trajectories (same starting points)
+    traj_sample_sinc_1 = sample_based_optimize(sinc_func, mu0=-8.0, sigma0=3.0, steps=500, seed=42)
+    traj_sample_sinc_2 = sample_based_optimize(sinc_func, mu0=6.0, sigma0=3.0, steps=200, seed=43)
+
+    traj_sample_hard_1 = sample_based_optimize(hard_func, mu0=-8.0, sigma0=3.0, steps=200, seed=44)
+    traj_sample_hard_2 = sample_based_optimize(hard_func, mu0=6.0, sigma0=3.0, steps=200, seed=45)
+    return (
+        traj_sample_hard_1,
+        traj_sample_hard_2,
+        traj_sample_sinc_1,
+        traj_sample_sinc_2,
+    )
+
+
+@app.cell(hide_code=True)
 def _(
     Z_hard,
     Z_sinc,
     np,
     plt,
     s_vals,
-    traj_hard_1,
-    traj_hard_2,
-    traj_sinc_1,
-    traj_sinc_2,
+    traj_grad_hard_1,
+    traj_grad_hard_2,
+    traj_grad_sinc_1,
+    traj_grad_sinc_2,
+    traj_sample_hard_1,
+    traj_sample_hard_2,
+    traj_sample_sinc_1,
+    traj_sample_sinc_2,
     x_vals,
 ):
-    fig3, axes = plt.subplots(2, 2, figsize=(10, 8))
+    # Both methods overlaid on same chart for direct comparison
+    fig_compare, axes = plt.subplots(2, 2, figsize=(12, 10))
 
-    X2, S2 = np.meshgrid(x_vals, s_vals)
+    _X2, _S2 = np.meshgrid(x_vals, s_vals)
 
     # Top row: sinc function
-    axes[0, 0].contourf(X2, S2, Z_sinc, levels=20, cmap='viridis')
-    axes[0, 0].plot(traj_sinc_1[:, 0], traj_sinc_1[:, 1], 'r.-', linewidth=1.5, markersize=3)
+    # Left: start x=-8
+    axes[0, 0].contourf(_X2, _S2, Z_sinc, levels=20, cmap='viridis')
+    axes[0, 0].plot(traj_grad_sinc_1[:, 0], traj_grad_sinc_1[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
+    axes[0, 0].plot(traj_sample_sinc_1[:, 0], traj_sample_sinc_1[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
+    axes[0, 0].scatter([traj_grad_sinc_1[0, 0]], [traj_grad_sinc_1[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
     axes[0, 0].set_xlabel('x')
-    axes[0, 0].set_ylabel('smoothing')
-    axes[0, 0].set_title('sinc: start x=-4')
+    axes[0, 0].set_ylabel('smoothing (σ)')
+    axes[0, 0].set_title('sinc: start x=-8')
+    axes[0, 0].legend(loc='upper right', fontsize=8)
 
-    axes[0, 1].contourf(X2, S2, Z_sinc, levels=20, cmap='viridis')
-    axes[0, 1].plot(traj_sinc_2[:, 0], traj_sinc_2[:, 1], 'r.-', linewidth=1.5, markersize=3)
+    # Right: start x=6
+    axes[0, 1].contourf(_X2, _S2, Z_sinc, levels=20, cmap='viridis')
+    axes[0, 1].plot(traj_grad_sinc_2[:, 0], traj_grad_sinc_2[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
+    axes[0, 1].plot(traj_sample_sinc_2[:, 0], traj_sample_sinc_2[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
+    axes[0, 1].scatter([traj_grad_sinc_2[0, 0]], [traj_grad_sinc_2[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
     axes[0, 1].set_xlabel('x')
-    axes[0, 1].set_ylabel('smoothing')
-    axes[0, 1].set_title('sinc: start x=3')
+    axes[0, 1].set_ylabel('smoothing (σ)')
+    axes[0, 1].set_title('sinc: start x=6')
+    axes[0, 1].legend(loc='upper right', fontsize=8)
 
-    # Bottom row: hard function
-    axes[1, 0].contourf(X2, S2, Z_hard, levels=20, cmap='viridis')
-    axes[1, 0].plot(traj_hard_1[:, 0], traj_hard_1[:, 1], 'r.-', linewidth=1.5, markersize=3)
+    # Bottom row: hard (floor) function
+    # Left: start x=-8
+    axes[1, 0].contourf(_X2, _S2, Z_hard, levels=20, cmap='viridis')
+    axes[1, 0].plot(traj_grad_hard_1[:, 0], traj_grad_hard_1[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
+    axes[1, 0].plot(traj_sample_hard_1[:, 0], traj_sample_hard_1[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
+    axes[1, 0].scatter([traj_grad_hard_1[0, 0]], [traj_grad_hard_1[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
     axes[1, 0].set_xlabel('x')
-    axes[1, 0].set_ylabel('smoothing')
-    axes[1, 0].set_title('floor: start x=-3.5')
+    axes[1, 0].set_ylabel('smoothing (σ)')
+    axes[1, 0].set_title('floor: start x=-8')
+    axes[1, 0].legend(loc='upper right', fontsize=8)
 
-    axes[1, 1].contourf(X2, S2, Z_hard, levels=20, cmap='viridis')
-    axes[1, 1].plot(traj_hard_2[:, 0], traj_hard_2[:, 1], 'r.-', linewidth=1.5, markersize=3)
+    # Right: start x=6
+    axes[1, 1].contourf(_X2, _S2, Z_hard, levels=20, cmap='viridis')
+    axes[1, 1].plot(traj_grad_hard_2[:, 0], traj_grad_hard_2[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
+    axes[1, 1].plot(traj_sample_hard_2[:, 0], traj_sample_hard_2[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
+    axes[1, 1].scatter([traj_grad_hard_2[0, 0]], [traj_grad_hard_2[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
     axes[1, 1].set_xlabel('x')
-    axes[1, 1].set_ylabel('smoothing')
-    axes[1, 1].set_title('floor: start x=2.5')
+    axes[1, 1].set_ylabel('smoothing (σ)')
+    axes[1, 1].set_title('floor: start x=6')
+    axes[1, 1].legend(loc='upper right', fontsize=8)
 
+    fig_compare.suptitle('Gradient (red) vs Sample-based (white) optimization', fontsize=14)
     plt.tight_layout()
-    fig3
+    fig_compare
     return
 
 
@@ -303,8 +449,8 @@ def _(
     ax_conv.set_title('Gaussian convolution')
 
     # Right: Heatmap with pixel
-    X_grid, S_grid = np.meshgrid(x_vals, s_vals)
-    ax_heat.contourf(X_grid, S_grid, Z_hard, levels=20, cmap='viridis')
+    _X_grid, _S_grid = np.meshgrid(x_vals, s_vals)
+    ax_heat.contourf(_X_grid, _S_grid, Z_hard, levels=20, cmap='viridis')
     ax_heat.scatter([x_pos], [sigma_val], s=200, c='white', marker='o',
                     edgecolors='red', linewidths=3, zorder=5)
 
