@@ -39,7 +39,7 @@ def _(mo):
 def _(np):
     # Shared x values for all plots
     x_vals = np.linspace(-15, 15, 1000)
-    s_vals = np.linspace(0.01, 5.0, 40)
+    s_vals = np.linspace(0.01, 6.0, 40)
     return s_vals, x_vals
 
 
@@ -247,22 +247,6 @@ def _(np, smoothed_value):
     return (gradient_descent_smoothed,)
 
 
-@app.cell
-def _(gradient_descent_smoothed, hard_func, sinc_func):
-    # Compute gradient-based trajectories
-    traj_grad_sinc_1 = gradient_descent_smoothed(sinc_func, x0=-8.0, s0=3.0, steps=200)
-    traj_grad_sinc_2 = gradient_descent_smoothed(sinc_func, x0=6.0, s0=3.0, steps=200)
-
-    traj_grad_hard_1 = gradient_descent_smoothed(hard_func, x0=-8.0, s0=3.0, steps=200)
-    traj_grad_hard_2 = gradient_descent_smoothed(hard_func, x0=6.0, s0=3.0, steps=200)
-    return (
-        traj_grad_hard_1,
-        traj_grad_hard_2,
-        traj_grad_sinc_1,
-        traj_grad_sinc_2,
-    )
-
-
 @app.cell(hide_code=True)
 def _(np):
     def sample_based_optimize(f, mu0, sigma0, alpha_mu=0.5, alpha_sigma=0.8, n_samples=50, steps=100, seed=42):
@@ -301,18 +285,18 @@ def _(np):
 
 
 @app.cell
-def _(hard_func, sample_based_optimize, sinc_func):
-    # Compute sample-based trajectories (same starting points)
-    traj_sample_sinc_1 = sample_based_optimize(sinc_func, mu0=-8.0, sigma0=3.0, steps=500, seed=42)
-    traj_sample_sinc_2 = sample_based_optimize(sinc_func, mu0=6.0, sigma0=3.0, steps=200, seed=43)
-
-    traj_sample_hard_1 = sample_based_optimize(hard_func, mu0=-8.0, sigma0=3.0, steps=200, seed=44)
-    traj_sample_hard_2 = sample_based_optimize(hard_func, mu0=6.0, sigma0=3.0, steps=200, seed=45)
+def _(mo):
+    # Configuration: ONE place to set all trajectory parameters
+    traj_x0_slider = mo.ui.slider(start=-12.0, stop=12.0, step=0.5, value=-8.0, label="Start x₀")
+    traj_s0_slider = mo.ui.slider(start=0.5, stop=5.0, step=0.1, value=3.0, label="Start σ₀")
+    traj_steps_slider = mo.ui.slider(start=50, stop=500, step=50, value=200, label="Steps")
+    traj_func_dropdown = mo.ui.dropdown(options=["sinc", "floor"], value="sinc", label="Function")
+    mo.hstack([traj_func_dropdown, traj_x0_slider, traj_s0_slider, traj_steps_slider], justify="start")
     return (
-        traj_sample_hard_1,
-        traj_sample_hard_2,
-        traj_sample_sinc_1,
-        traj_sample_sinc_2,
+        traj_func_dropdown,
+        traj_s0_slider,
+        traj_steps_slider,
+        traj_x0_slider,
     )
 
 
@@ -320,69 +304,50 @@ def _(hard_func, sample_based_optimize, sinc_func):
 def _(
     Z_hard,
     Z_sinc,
+    gradient_descent_smoothed,
+    hard_func,
     np,
     plt,
     s_vals,
-    traj_grad_hard_1,
-    traj_grad_hard_2,
-    traj_grad_sinc_1,
-    traj_grad_sinc_2,
-    traj_sample_hard_1,
-    traj_sample_hard_2,
-    traj_sample_sinc_1,
-    traj_sample_sinc_2,
+    sample_based_optimize,
+    sinc_func,
+    traj_func_dropdown,
+    traj_s0_slider,
+    traj_steps_slider,
+    traj_x0_slider,
     x_vals,
 ):
-    # Both methods overlaid on same chart for direct comparison
-    fig_compare, axes = plt.subplots(2, 2, figsize=(12, 10))
+    # Get config values
+    _x0 = traj_x0_slider.value
+    _s0 = traj_s0_slider.value
+    _steps = traj_steps_slider.value
+    _func_name = traj_func_dropdown.value
+    _func = sinc_func if _func_name == "sinc" else hard_func
+    _Z = Z_sinc if _func_name == "sinc" else Z_hard
+
+    # Compute both trajectories from same starting point
+    _traj_grad = gradient_descent_smoothed(_func, x0=_x0, s0=_s0, steps=_steps)
+    _traj_sample = sample_based_optimize(_func, mu0=_x0, sigma0=_s0, steps=_steps, seed=42)
+
+    # Single chart comparing both methods
+    fig_traj, ax_traj = plt.subplots(figsize=(10, 6))
 
     _X2, _S2 = np.meshgrid(x_vals, s_vals)
+    ax_traj.contourf(_X2, _S2, _Z, levels=20, cmap='viridis')
 
-    # Top row: sinc function
-    # Left: start x=-8
-    axes[0, 0].contourf(_X2, _S2, Z_sinc, levels=20, cmap='viridis')
-    axes[0, 0].plot(traj_grad_sinc_1[:, 0], traj_grad_sinc_1[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
-    axes[0, 0].plot(traj_sample_sinc_1[:, 0], traj_sample_sinc_1[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
-    axes[0, 0].scatter([traj_grad_sinc_1[0, 0]], [traj_grad_sinc_1[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
-    axes[0, 0].set_xlabel('x')
-    axes[0, 0].set_ylabel('smoothing (σ)')
-    axes[0, 0].set_title('sinc: start x=-8')
-    axes[0, 0].legend(loc='upper right', fontsize=8)
+    # Red for gradient, green for sample-based
+    ax_traj.plot(_traj_grad[:, 0], _traj_grad[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
+    ax_traj.plot(_traj_sample[:, 0], _traj_sample[:, 1], 'g.-', linewidth=2, markersize=3, label='Sample-based')
+    ax_traj.scatter([_x0], [_s0], s=150, c='yellow', marker='*', zorder=10, edgecolors='black', label='Start')
 
-    # Right: start x=6
-    axes[0, 1].contourf(_X2, _S2, Z_sinc, levels=20, cmap='viridis')
-    axes[0, 1].plot(traj_grad_sinc_2[:, 0], traj_grad_sinc_2[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
-    axes[0, 1].plot(traj_sample_sinc_2[:, 0], traj_sample_sinc_2[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
-    axes[0, 1].scatter([traj_grad_sinc_2[0, 0]], [traj_grad_sinc_2[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
-    axes[0, 1].set_xlabel('x')
-    axes[0, 1].set_ylabel('smoothing (σ)')
-    axes[0, 1].set_title('sinc: start x=6')
-    axes[0, 1].legend(loc='upper right', fontsize=8)
+    ax_traj.set_xlabel('x')
+    ax_traj.set_ylabel('smoothing (σ)')
+    ax_traj.set_title(f'{_func_name} function: start (x={_x0}, σ={_s0}), {_steps} steps')
+    ax_traj.legend(loc='upper right')
+    plt.colorbar(ax_traj.collections[0], ax=ax_traj)
 
-    # Bottom row: hard (floor) function
-    # Left: start x=-8
-    axes[1, 0].contourf(_X2, _S2, Z_hard, levels=20, cmap='viridis')
-    axes[1, 0].plot(traj_grad_hard_1[:, 0], traj_grad_hard_1[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
-    axes[1, 0].plot(traj_sample_hard_1[:, 0], traj_sample_hard_1[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
-    axes[1, 0].scatter([traj_grad_hard_1[0, 0]], [traj_grad_hard_1[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
-    axes[1, 0].set_xlabel('x')
-    axes[1, 0].set_ylabel('smoothing (σ)')
-    axes[1, 0].set_title('floor: start x=-8')
-    axes[1, 0].legend(loc='upper right', fontsize=8)
-
-    # Right: start x=6
-    axes[1, 1].contourf(_X2, _S2, Z_hard, levels=20, cmap='viridis')
-    axes[1, 1].plot(traj_grad_hard_2[:, 0], traj_grad_hard_2[:, 1], 'r.-', linewidth=2, markersize=3, label='Gradient')
-    axes[1, 1].plot(traj_sample_hard_2[:, 0], traj_sample_hard_2[:, 1], 'w.-', linewidth=2, markersize=3, label='Sample')
-    axes[1, 1].scatter([traj_grad_hard_2[0, 0]], [traj_grad_hard_2[0, 1]], s=100, c='yellow', marker='*', zorder=10, label='Start')
-    axes[1, 1].set_xlabel('x')
-    axes[1, 1].set_ylabel('smoothing (σ)')
-    axes[1, 1].set_title('floor: start x=6')
-    axes[1, 1].legend(loc='upper right', fontsize=8)
-
-    fig_compare.suptitle('Gradient (red) vs Sample-based (white) optimization', fontsize=14)
     plt.tight_layout()
-    fig_compare
+    fig_traj
     return
 
 
