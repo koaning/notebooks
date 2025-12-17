@@ -569,8 +569,10 @@ def _(
     _ax_mu.contourf(_X_local, _Y_local, _Z_local, levels=25, cmap='viridis', alpha=0.6)
 
     # Compute mu contribution magnitudes for coloring
+    # Use 90th percentile for normalization to avoid outliers compressing the color range
     _mu_magnitudes = np.linalg.norm(_mu_contrib, axis=1)
-    _mu_mag_normalized = _mu_magnitudes / (_mu_magnitudes.max() + 1e-8)
+    _mu_mag_p90 = np.percentile(_mu_magnitudes, 90) + 1e-8
+    _mu_mag_normalized = np.clip(_mu_magnitudes / _mu_mag_p90, 0, 1)
 
     # Draw samples as points (no color here, arrows will have color)
     _ax_mu.scatter(_samples[:, 0], _samples[:, 1], c='white', s=60, alpha=0.9,
@@ -621,10 +623,12 @@ def _(
     _ax_sigma.contourf(_X_local, _Y_local, _Z_local, levels=25, cmap='viridis', alpha=0.6)
 
     # Compute directions and normalized magnitudes for sigma
+    # Use 90th percentile for normalization to avoid outliers compressing the color range
     _directions = _samples - _mu
     _distances = np.sqrt(np.sum(_directions**2, axis=1))
     _unit_dirs = _directions / (_distances[:, None] + 1e-8)
-    _sigma_mag_normalized = np.abs(_sigma_contrib) / (np.abs(_sigma_contrib).max() + 1e-8)
+    _sigma_mag_p90 = np.percentile(np.abs(_sigma_contrib), 90) + 1e-8
+    _sigma_mag_normalized = np.clip(np.abs(_sigma_contrib) / _sigma_mag_p90, 0, 1)
 
     # Draw samples as points
     _ax_sigma.scatter(_samples[:, 0], _samples[:, 1], c='white', s=60, alpha=0.9,
