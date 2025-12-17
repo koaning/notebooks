@@ -1,5 +1,9 @@
 # Agent Instructions
 
+## Python Version
+
+Prefer Python 3.12 for now. Some packages (like `av` for manim) have compatibility issues with Python 3.14. Use `requires-python = ">=3.12,<3.14"` in script headers.
+
 ## Marimo Notebook Validation
 
 After every edit to a `.py` file that is a Marimo notebook, run:
