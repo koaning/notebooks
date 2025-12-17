@@ -4,7 +4,7 @@
 #     "marimo",
 #     "matplotlib>=3.8",
 #     "numpy>=2.0",
-#     "scipy>=1.12",
+#     "torch>=2.0",
 # ]
 # ///
 
@@ -19,8 +19,9 @@ def _():
     import marimo as mo
     import numpy as np
     import matplotlib.pyplot as plt
-    from scipy.stats import norm
-    return mo, norm, np, plt
+    import torch
+    import torch.nn as nn
+    return mo, nn, np, plt, torch
 
 
 @app.cell(hide_code=True)
@@ -28,12 +29,14 @@ def _(mo):
     mo.md(r"""
     # Diffusion Models: Learning to Reverse Noise
 
-    Diffusion models are one of the most powerful generative models today. The key idea is surprisingly simple:
+    Diffusion models are one of the most powerful generative models today. The core idea:
 
-    1. **Destroy data** by gradually adding noise until it becomes pure random noise
-    2. **Learn to reverse** this process, so we can start from noise and generate new data
+    1. **Forward process (easy):** Gradually add noise to data until it becomes pure random noise
+    2. **Reverse process (the mystery):** Start from noise and somehow recover the original structure
 
-    Let's see the full picture first, then break it down step by step.
+    The forward process is trivial - just add Gaussian noise. But how do we reverse it? **How do we know which direction leads back to real data?**
+
+    That's exactly what this notebook will teach you.
     """)
     return
 
@@ -132,9 +135,11 @@ def _(mo):
     mo.md(r"""
     ## The Big Picture: Forward and Reverse
 
-    **Forward process (left to right):** We start with structured data (a checkerboard pattern) and gradually add noise until it becomes random.
+    **Forward process (left to right):** We start with structured data (a checkerboard pattern) and gradually add noise until it becomes random. This is easy - we just add Gaussian noise.
 
-    **Reverse process (right to left):** We learn to undo this! Starting from noise, we iteratively denoise to recover structure. Watch the grid pattern emerge first, then the sharp square boundaries.
+    **Reverse process (right to left):** Starting from noise, we iteratively denoise to recover structure. Watch the grid pattern emerge first, then the sharp square boundaries.
+
+    **The key question:** How does the reverse process know which direction to go? We'll explore different methods to solve this - and ultimately train a neural network to do it.
     """)
     return
 
@@ -324,27 +329,27 @@ def _(data_grid_size, data_original, forward_t_slider, np, plt):
     _alpha_bar = 1 - _t
     _lim = data_grid_size / 2 + 1.5
 
+    # Use the full dataset
     np.random.seed(123)
-    _indices = np.random.choice(len(data_original), size=50, replace=False)
-    _x0 = data_original[_indices]
+    _x0 = data_original
     _eps = np.random.randn(*_x0.shape)
     _xt = np.sqrt(_alpha_bar) * _x0 + np.sqrt(1 - _alpha_bar + 1e-8) * _eps
 
     _fig, (_ax1, _ax2, _ax3) = plt.subplots(1, 3, figsize=(12, 4))
 
-    _ax1.scatter(_x0[:, 0], _x0[:, 1], c='blue', alpha=0.7, s=50)
+    _ax1.scatter(_x0[:, 0], _x0[:, 1], c='blue', alpha=0.5, s=15)
     _ax1.set_xlim(-_lim, _lim)
     _ax1.set_ylim(-_lim, _lim)
     _ax1.set_title(r"$x_0$ (original)")
     _ax1.set_aspect('equal')
 
-    _ax2.scatter(_eps[:, 0], _eps[:, 1], c='red', alpha=0.7, s=50)
+    _ax2.scatter(_eps[:, 0], _eps[:, 1], c='red', alpha=0.5, s=15)
     _ax2.set_xlim(-_lim, _lim)
     _ax2.set_ylim(-_lim, _lim)
     _ax2.set_title(r"$\epsilon$ (noise)")
     _ax2.set_aspect('equal')
 
-    _ax3.scatter(_xt[:, 0], _xt[:, 1], c='purple', alpha=0.7, s=50)
+    _ax3.scatter(_xt[:, 0], _xt[:, 1], c='purple', alpha=0.5, s=15)
     _ax3.set_xlim(-_lim, _lim)
     _ax3.set_ylim(-_lim, _lim)
     _ax3.set_title(rf"$x_t = \sqrt{{{_alpha_bar:.2f}}} \cdot x_0 + \sqrt{{{1-_alpha_bar:.2f}}} \cdot \epsilon$")
@@ -374,17 +379,16 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    schedule_dropdown = mo.ui.dropdown(
-        options=["linear", "cosine"],
-        value="linear",
-        label="Noise schedule"
+    schedule_t_slider = mo.ui.slider(
+        start=0.0, stop=1.0, step=0.05, value=0.3,
+        label="Timestep t", show_value=True
     )
-    schedule_dropdown
-    return (schedule_dropdown,)
+    schedule_t_slider
+    return (schedule_t_slider,)
 
 
 @app.cell
-def _(data_grid_size, data_original, np, plt, schedule_dropdown):
+def _(data_grid_size, data_original, np, plt, schedule_t_slider):
     def _linear_schedule(t):
         return 1 - t
 
@@ -394,19 +398,16 @@ def _(data_grid_size, data_original, np, plt, schedule_dropdown):
         f_0 = np.cos(s / (1 + s) * np.pi / 2) ** 2
         return f_t / f_0
 
-    _schedule_name = schedule_dropdown.value
-    _schedule_fn = _linear_schedule if _schedule_name == "linear" else _cosine_schedule
-
-    # Compare schedules at t=0.3
-    _t_compare = 0.3
+    # Use slider value for comparison
+    _t_compare = schedule_t_slider.value
     _alpha_linear = _linear_schedule(_t_compare)
     _alpha_cosine = _cosine_schedule(_t_compare)
     _lim = data_grid_size / 2 + 1.5
 
     np.random.seed(42)
     _noise = np.random.randn(*data_original.shape)
-    _data_linear = np.sqrt(_alpha_linear) * data_original + np.sqrt(1 - _alpha_linear) * _noise
-    _data_cosine = np.sqrt(_alpha_cosine) * data_original + np.sqrt(1 - _alpha_cosine) * _noise
+    _data_linear = np.sqrt(_alpha_linear) * data_original + np.sqrt(1 - _alpha_linear + 1e-8) * _noise
+    _data_cosine = np.sqrt(_alpha_cosine) * data_original + np.sqrt(1 - _alpha_cosine + 1e-8) * _noise
 
     _fig, _axes = plt.subplots(1, 3, figsize=(14, 4))
 
@@ -423,23 +424,23 @@ def _(data_grid_size, data_original, np, plt, schedule_dropdown):
     _axes[0].legend()
     _axes[0].grid(True, alpha=0.3)
 
-    # Linear at t=0.3
+    # Linear at current t
     _axes[1].scatter(_data_linear[:, 0], _data_linear[:, 1], c='#3498db', alpha=0.5, s=10)
     _axes[1].set_xlim(-_lim, _lim)
     _axes[1].set_ylim(-_lim, _lim)
-    _axes[1].set_title(f'Linear at t={_t_compare}\n(signal: {_alpha_linear:.0%})')
+    _axes[1].set_title(f'Linear at t={_t_compare:.2f}\n(signal: {_alpha_linear:.0%})')
     _axes[1].set_aspect('equal')
 
-    # Cosine at t=0.3
+    # Cosine at current t
     _axes[2].scatter(_data_cosine[:, 0], _data_cosine[:, 1], c='#e74c3c', alpha=0.5, s=10)
     _axes[2].set_xlim(-_lim, _lim)
     _axes[2].set_ylim(-_lim, _lim)
-    _axes[2].set_title(f'Cosine at t={_t_compare}\n(signal: {_alpha_cosine:.0%})')
+    _axes[2].set_title(f'Cosine at t={_t_compare:.2f}\n(signal: {_alpha_cosine:.0%})')
     _axes[2].set_aspect('equal')
 
     plt.tight_layout()
     _fig
-    return (schedule_dropdown,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -587,14 +588,15 @@ def _(mo):
     mo.md(r"""
     ---
 
-    ## Section 5: The Reverse Process
+    ## Section 5: The Reverse Process (with KDE)
 
-    The **DDPM sampling algorithm** reverses the diffusion:
+    Now that we understand the score, let's see the reverse process in action!
 
-    For $t = T, T-1, \ldots, 1$:
-    1. Predict the noise: $\hat{\epsilon} = \epsilon_\theta(x_t, t)$
-    2. Compute the mean: $\mu = \frac{1}{\sqrt{\alpha_t}}\left(x_t - \frac{\beta_t}{\sqrt{1 - \bar{\alpha}_t}} \hat{\epsilon}\right)$
-    3. Add a little noise: $x_{t-1} = \mu + \sigma_t \cdot z$
+    **One way to estimate the score** is with **Kernel Density Estimation (KDE)**. If we have access to the training data, we can estimate the score at any point by looking at nearby data points.
+
+    This is a valid method, but it has a limitation: it requires access to the original data. In practice, we want to generate **new** data without looking at the training set. That's why we'll later train a neural network instead.
+
+    For now, let's see how reverse diffusion works using KDE. We use **Langevin dynamics**: iteratively move in the direction of the score (toward higher probability) plus a small amount of noise.
 
     Use the slider to step through the reverse process!
     """)
@@ -641,17 +643,19 @@ def _(mo):
 
     ---
 
-    ## Section 6: Training the Score Network
+    ## Section 6: Training a Neural Network
 
-    Now we need to **learn** the score function. Here's the key insight:
+    KDE works, but requires access to the training data during generation. **A better approach:** train a neural network to predict the score directly!
 
     ### One Model, All Timesteps
 
     We train a **single neural network** $\epsilon_\theta(x_t, t)$ that takes:
-    - **Input:** A noisy point $x_t$ and the timestep $t$
+    - **Input:** A noisy point $x_t$ AND the timestep $t$
     - **Output:** The predicted noise $\hat{\epsilon}$
 
-    The same network handles all noise levels! It learns to recognize "how much noise is there?" from the timestep $t$, and "where did this point come from?" from the position $x_t$.
+    The **same network handles all noise levels!** It learns:
+    - From $t$: "how much noise is there?"
+    - From $x_t$: "where did this point likely come from?"
 
     ### Training Algorithm
 
@@ -665,94 +669,73 @@ def _(mo):
     **Training objective:**
     $$\mathcal{L} = \mathbb{E}_{x_0, \epsilon, t}\left[\|\epsilon - \epsilon_\theta(x_t, t)\|^2\right]$$
 
-    Let's implement a simple MLP in pure numpy!
+    Let's implement this with PyTorch!
     """)
     return
 
 
 @app.cell
-def _(np):
-    class SimpleMLP:
-        """A simple 2-layer MLP for predicting noise in 2D diffusion."""
+def _(nn, torch):
+    class NoisePredictor(nn.Module):
+        """A simple MLP for predicting noise in 2D diffusion."""
 
-        def __init__(self, hidden_dim=64, seed=42):
-            np.random.seed(seed)
-            scale1 = np.sqrt(2.0 / 3)
-            scale2 = np.sqrt(2.0 / hidden_dim)
-            scale3 = np.sqrt(2.0 / hidden_dim)
-
-            self.W1 = np.random.randn(3, hidden_dim) * scale1
-            self.b1 = np.zeros(hidden_dim)
-            self.W2 = np.random.randn(hidden_dim, hidden_dim) * scale2
-            self.b2 = np.zeros(hidden_dim)
-            self.W3 = np.random.randn(hidden_dim, 2) * scale3
-            self.b3 = np.zeros(2)
+        def __init__(self, hidden_dim=128):
+            super().__init__()
+            self.net = nn.Sequential(
+                nn.Linear(3, hidden_dim),    # Input: (x, y, t)
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, 2)     # Output: (noise_x, noise_y)
+            )
 
         def forward(self, x, t):
-            """Forward pass. x: (batch, 2), t: (batch,) or scalar"""
-            if np.isscalar(t):
-                t = np.full(len(x), t)
+            """Forward pass. x: (batch, 2), t: (batch,) or (batch, 1)"""
+            if t.dim() == 1:
+                t = t.unsqueeze(-1)
+            inp = torch.cat([x, t], dim=-1)
+            return self.net(inp)
 
-            inp = np.column_stack([x, t])
-            h1 = np.maximum(0, inp @ self.W1 + self.b1)
-            h2 = np.maximum(0, h1 @ self.W2 + self.b2)
-            out = h2 @ self.W3 + self.b3
+    def train_diffusion_model(data, n_iterations=3000, batch_size=128, lr=0.001, seed=42):
+        """Train the diffusion model with PyTorch."""
+        torch.manual_seed(seed)
 
-            return out, (inp, h1, h2)
+        # Convert data to tensor
+        data_tensor = torch.tensor(data, dtype=torch.float32)
 
-        def backward(self, x, t, target, lr=0.001):
-            """Backward pass with gradient descent."""
-            out, (inp, h1, h2) = self.forward(x, t)
-
-            batch_size = len(x)
-            d_out = 2 * (out - target) / batch_size
-
-            d_W3 = h2.T @ d_out
-            d_b3 = d_out.sum(axis=0)
-
-            d_h2 = d_out @ self.W3.T
-            d_h2 = d_h2 * (h2 > 0)
-
-            d_W2 = h1.T @ d_h2
-            d_b2 = d_h2.sum(axis=0)
-
-            d_h1 = d_h2 @ self.W2.T
-            d_h1 = d_h1 * (h1 > 0)
-
-            d_W1 = inp.T @ d_h1
-            d_b1 = d_h1.sum(axis=0)
-
-            self.W3 -= lr * d_W3
-            self.b3 -= lr * d_b3
-            self.W2 -= lr * d_W2
-            self.b2 -= lr * d_b2
-            self.W1 -= lr * d_W1
-            self.b1 -= lr * d_b1
-
-            loss = np.mean((out - target) ** 2)
-            return loss
-
-    def train_diffusion_model(data, n_iterations=2000, batch_size=128, lr=0.01, seed=42):
-        """Train the diffusion model."""
-        np.random.seed(seed)
-        model = SimpleMLP(hidden_dim=64, seed=seed)
+        model = NoisePredictor(hidden_dim=128)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         losses = []
 
         for _iter in range(n_iterations):
-            indices = np.random.choice(len(data), size=batch_size, replace=True)
-            x0 = data[indices]
+            # Sample batch
+            indices = torch.randint(0, len(data_tensor), (batch_size,))
+            x0 = data_tensor[indices]
 
-            t = np.random.uniform(0.01, 0.99, size=batch_size)
+            # Sample timesteps and noise
+            t = torch.rand(batch_size) * 0.98 + 0.01  # Uniform(0.01, 0.99)
             alpha_bar = 1 - t
-            epsilon = np.random.randn(batch_size, 2)
-            xt = np.sqrt(alpha_bar)[:, np.newaxis] * x0 + np.sqrt(1 - alpha_bar + 1e-8)[:, np.newaxis] * epsilon
+            epsilon = torch.randn(batch_size, 2)
 
-            loss = model.backward(xt, t, epsilon, lr=lr)
-            losses.append(loss)
+            # Create noisy samples
+            xt = torch.sqrt(alpha_bar).unsqueeze(-1) * x0 + torch.sqrt(1 - alpha_bar + 1e-8).unsqueeze(-1) * epsilon
+
+            # Predict noise and compute loss
+            epsilon_pred = model(xt, t)
+            loss = torch.mean((epsilon_pred - epsilon) ** 2)
+
+            # Optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            losses.append(loss.item())
 
         return model, losses
 
-    return SimpleMLP, train_diffusion_model
+    return NoisePredictor, train_diffusion_model
 
 
 @app.cell
@@ -801,34 +784,37 @@ def _(mo):
 
 
 @app.cell
-def _(data_grid_size, np, trained_model):
+def _(data_grid_size, torch, trained_model):
     def sample_with_learned_model(model, n_samples=200, n_steps=50, seed=42, data_scale=2.0):
         """Generate samples using the trained model with Langevin dynamics."""
-        np.random.seed(seed)
-        # Start from noise scaled to match the data range
-        x = np.random.randn(n_samples, 2) * data_scale
+        torch.manual_seed(seed)
+        model.eval()
 
-        for step in range(n_steps):
-            # Go from t=1 (pure noise) to t=0 (clean data)
-            t = 1.0 - step / n_steps
-            t_arr = np.full(n_samples, t)
+        with torch.no_grad():
+            # Start from noise scaled to match the data range
+            x = torch.randn(n_samples, 2) * data_scale
 
-            # Predict the noise
-            epsilon_pred, _ = model.forward(x, t_arr)
+            for step in range(n_steps):
+                # Go from t=1 (pure noise) to t=0 (clean data)
+                t = 1.0 - step / n_steps
+                t_tensor = torch.full((n_samples,), t)
 
-            # Convert noise prediction to score
-            alpha_bar_t = 1 - t
-            score = -epsilon_pred / (np.sqrt(1 - alpha_bar_t) + 1e-4)
+                # Predict the noise
+                epsilon_pred = model(x, t_tensor)
 
-            # Langevin step: move in direction of score + add noise
-            step_size = 0.1 * (1.0 - 0.5 * (1 - t))  # Larger steps early, smaller late
-            noise_scale = np.sqrt(2 * step_size) * t  # Less noise as we approach t=0
+                # Convert noise prediction to score
+                alpha_bar_t = 1 - t
+                score = -epsilon_pred / (torch.sqrt(torch.tensor(1 - alpha_bar_t)) + 1e-4)
 
-            x = x + step_size * score
-            if step < n_steps - 1:
-                x = x + noise_scale * np.random.randn(n_samples, 2)
+                # Langevin step: move in direction of score + add noise
+                step_size = 0.1 * (1.0 - 0.5 * (1 - t))  # Larger steps early, smaller late
+                noise_scale = (2 * step_size) ** 0.5 * t  # Less noise as we approach t=0
 
-        return x
+                x = x + step_size * score
+                if step < n_steps - 1:
+                    x = x + noise_scale * torch.randn(n_samples, 2)
+
+        return x.numpy()
 
     # Scale based on grid size
     _data_scale = data_grid_size / 2 + 0.5
@@ -869,7 +855,7 @@ def _(
     _ax.set_ylim(-_lim, _lim)
     _ax.set_xlabel('x')
     _ax.set_ylabel('y')
-    _ax.set_title(f'Generated vs Original Data ({_n_steps} sampling steps)')
+    _ax.set_title(f'Generated vs Original ({_n_steps} sampling steps)\nSame model applied {_n_steps} times!')
     _ax.set_aspect('equal')
     _ax.legend()
 
@@ -887,7 +873,41 @@ def _(mo):
 
     ---
 
-    ## Section 8: What the Network Learned
+    ## Section 8: How Sampling Works
+
+    Let's look inside the sampling loop. Remember: we use the **same model** at every step, but with different timestep values.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### The Sampling Algorithm
+
+    ```
+    Start with pure noise: x ~ N(0, I)
+
+    for t = 1.0, 0.98, 0.96, ..., 0.02:
+        1. Query the model: noise_pred = model(x, t)
+        2. Compute score: score = -noise_pred / sqrt(1 - alpha_bar_t)
+        3. Take a step toward data: x = x + step_size * score
+        4. Add small noise (unless at final step)
+
+    Return x as the generated sample
+    ```
+
+    **Key insight:** The model learns to predict noise at ANY noise level because we pass `t` as input. During sampling, we call it ~50 times with decreasing `t` values, gradually refining from noise to data.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ---
+
+    ## Section 9: What the Network Learned
 
     Let's visualize the score field at different noise levels.
     """)
@@ -905,7 +925,7 @@ def _(mo):
 
 
 @app.cell
-def _(data_grid_size, data_original, np, plt, score_t_slider, trained_model):
+def _(data_grid_size, data_original, np, plt, score_t_slider, torch, trained_model):
     _t = score_t_slider.value
     _alpha_bar = 1 - _t
     _lim = data_grid_size / 2 + 1.0
@@ -915,8 +935,12 @@ def _(data_grid_size, data_original, np, plt, score_t_slider, trained_model):
     _X, _Y = np.meshgrid(_x, _y)
     _grid_points = np.column_stack([_X.ravel(), _Y.ravel()])
 
-    _t_arr = np.full(len(_grid_points), _t)
-    _epsilon_pred, _ = trained_model.forward(_grid_points, _t_arr)
+    # Use PyTorch for prediction
+    trained_model.eval()
+    with torch.no_grad():
+        _grid_tensor = torch.tensor(_grid_points, dtype=torch.float32)
+        _t_tensor = torch.full((len(_grid_points),), _t)
+        _epsilon_pred = trained_model(_grid_tensor, _t_tensor).numpy()
 
     _score = -_epsilon_pred / np.sqrt(1 - _alpha_bar + 1e-8)
 
