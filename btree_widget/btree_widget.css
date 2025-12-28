@@ -1,11 +1,13 @@
 .btree-root {
-  --btree-blue-start: #3f78c8;
-  --btree-blue-end: #2f5da7;
-  --btree-node-border: #1d3f7a;
-  --btree-node-shadow: rgba(18, 42, 86, 0.25);
-  --btree-edge: #151515;
-  --btree-shell: #f7f9fc;
-  --btree-shell-border: #c8d1e3;
+  --btree-node-fill: #e4e7ee;
+  --btree-node-fill-dark: #d3d8e4;
+  --btree-node-border: #8b96ad;
+  --btree-node-shadow: rgba(40, 45, 60, 0.18);
+  --btree-edge: #2a2a2a;
+  --btree-shell: #f7f8fb;
+  --btree-shell-border: #c7cdd9;
+  --btree-key-bg: #fdfdff;
+  --btree-key-border: #c7cdd9;
   font-family: "Gill Sans", "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
@@ -41,7 +43,7 @@
   align-items: center;
   padding: 8px 14px 14px;
   min-width: 78px;
-  background: linear-gradient(135deg, var(--btree-blue-start), var(--btree-blue-end));
+  background: linear-gradient(135deg, var(--btree-node-fill), var(--btree-node-fill-dark));
   border: 2px solid var(--btree-node-border);
   border-radius: 12px;
   box-shadow: 0 10px 18px var(--btree-node-shadow);
@@ -54,14 +56,24 @@
   justify-content: center;
 }
 
+.btree-node-grid {
+  display: grid;
+  grid-auto-columns: max-content;
+  grid-auto-rows: max-content;
+  column-gap: 6px;
+  row-gap: 6px;
+  align-items: center;
+  justify-items: center;
+}
+
 .btree-key {
-  background: #f3f6ff;
-  color: #143160;
+  background: var(--btree-key-bg);
+  color: #222733;
   padding: 4px 10px;
   border-radius: 8px;
   font-weight: 600;
   font-size: 0.95rem;
-  box-shadow: inset 0 0 0 1px rgba(20, 49, 96, 0.15);
+  box-shadow: inset 0 0 0 1px var(--btree-key-border);
 }
 
 .btree-key-empty {
@@ -69,19 +81,13 @@
   font-style: italic;
 }
 
-.btree-pointers {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 .btree-pointer {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #e9f1ff;
-  border: 1px solid #8aa5db;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  background: #f0f1f4;
+  border: 1px solid #7c879e;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
 }
 
 .btree-edges {

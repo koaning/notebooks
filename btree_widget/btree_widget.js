@@ -15,12 +15,12 @@ function buildLevels(tree) {
     }
     levels[current.depth].push({ id: current.id, node: current.node });
     const children = current.node.children || [];
-    for (const child of children) {
+    children.forEach((child, childIndex) => {
       idCounter += 1;
       const childId = idCounter;
-      edges.push({ from: current.id, to: childId });
+      edges.push({ from: current.id, to: childId, childIndex });
       queue.push({ node: child, depth: current.depth + 1, id: childId });
-    }
+    });
   }
   return { levels, edges };
 }
@@ -29,38 +29,39 @@ function createNodeEl(node) {
   const nodeEl = document.createElement("div");
   nodeEl.className = "btree-node";
 
-  const keysEl = document.createElement("div");
-  keysEl.className = "btree-keys";
-
   const keys = node && Array.isArray(node.keys) ? node.keys : [];
   if (keys.length === 0) {
+    const keysEl = document.createElement("div");
+    keysEl.className = "btree-keys";
     const emptyEl = document.createElement("span");
     emptyEl.className = "btree-key btree-key-empty";
     emptyEl.textContent = "empty";
     keysEl.appendChild(emptyEl);
-  } else {
-    for (const key of keys) {
+    nodeEl.appendChild(keysEl);
+    return nodeEl;
+  }
+
+  const gridEl = document.createElement("div");
+  gridEl.className = "btree-node-grid";
+  const pointerCount = keys.length + 1;
+  for (let i = 0; i < pointerCount; i += 1) {
+    const dot = document.createElement("span");
+    dot.className = "btree-pointer";
+    dot.dataset.pointerIndex = String(i);
+    dot.style.gridColumn = String(1 + i * 2);
+    dot.style.gridRow = "2";
+    gridEl.appendChild(dot);
+
+    if (i < keys.length) {
       const keyEl = document.createElement("span");
       keyEl.className = "btree-key";
-      keyEl.textContent = String(key);
-      keysEl.appendChild(keyEl);
+      keyEl.textContent = String(keys[i]);
+      keyEl.style.gridColumn = String(2 + i * 2);
+      keyEl.style.gridRow = "1";
+      gridEl.appendChild(keyEl);
     }
   }
-
-  nodeEl.appendChild(keysEl);
-
-  const children = node && Array.isArray(node.children) ? node.children : [];
-  if (children.length > 0) {
-    const pointersEl = document.createElement("div");
-    pointersEl.className = "btree-pointers";
-    const pointerCount = Math.max(1, keys.length + 1);
-    for (let i = 0; i < pointerCount; i += 1) {
-      const dot = document.createElement("span");
-      dot.className = "btree-pointer";
-      pointersEl.appendChild(dot);
-    }
-    nodeEl.appendChild(pointersEl);
-  }
+  nodeEl.appendChild(gridEl);
 
   return nodeEl;
 }
@@ -100,22 +101,35 @@ function drawEdges({ container, svg, nodeEls, edges }) {
     }
     const fromRect = fromEl.getBoundingClientRect();
     const toRect = toEl.getBoundingClientRect();
+    const pointerEl = fromEl.querySelector(
+      `.btree-pointer[data-pointer-index="${edge.childIndex}"]`
+    );
 
-    const x1 = fromRect.left + fromRect.width / 2 - rect.left;
-    const y1 = fromRect.bottom - rect.top - 6;
+    let x1 = fromRect.left + fromRect.width / 2 - rect.left;
+    let y1 = fromRect.bottom - rect.top - 6;
+    if (pointerEl) {
+      const pointerRect = pointerEl.getBoundingClientRect();
+      x1 = pointerRect.left + pointerRect.width / 2 - rect.left;
+      y1 = pointerRect.top + pointerRect.height / 2 - rect.top;
+    }
     const x2 = toRect.left + toRect.width / 2 - rect.left;
     const y2 = toRect.top - rect.top + 6;
 
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("x1", x1);
-    line.setAttribute("y1", y1);
-    line.setAttribute("x2", x2);
-    line.setAttribute("y2", y2);
-    line.setAttribute("marker-end", "url(#btree-arrow)");
-    line.setAttribute("stroke", "var(--btree-edge)");
-    line.setAttribute("stroke-width", "2.5");
-    line.setAttribute("stroke-linecap", "round");
-    svg.appendChild(line);
+    const controlX = (x1 + x2) / 2;
+    const bend = Math.min(32, Math.abs(x2 - x1) * 0.25);
+    const controlY = (y1 + y2) / 2 - bend;
+
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute(
+      "d",
+      `M ${x1} ${y1} Q ${controlX} ${controlY} ${x2} ${y2}`
+    );
+    path.setAttribute("marker-end", "url(#btree-arrow)");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "var(--btree-edge)");
+    path.setAttribute("stroke-width", "2.5");
+    path.setAttribute("stroke-linecap", "round");
+    svg.appendChild(path);
   }
 }
 
