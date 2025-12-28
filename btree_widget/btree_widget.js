@@ -110,7 +110,7 @@ function drawEdges({ container, svg, nodeEls, edges }) {
     if (pointerEl) {
       const pointerRect = pointerEl.getBoundingClientRect();
       x1 = pointerRect.left + pointerRect.width / 2 - rect.left;
-      y1 = pointerRect.bottom - rect.top + 1;
+      y1 = pointerRect.top + pointerRect.height / 2 - rect.top - 1;
     }
     const x2 = toRect.left + toRect.width / 2 - rect.left;
     const y2 = toRect.top - rect.top + 6;
