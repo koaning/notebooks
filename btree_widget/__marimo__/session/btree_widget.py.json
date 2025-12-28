@@ -1,0 +1,105 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.18.4"
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "e1e51cb540d60a6661d5b31a41e0489e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "13b473aeb39ff6e497c4dab64d2257cc",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "d48128d85919df645ce9ddc75f25b1f6",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "99b59d241024f3f5832d5120558a10f6",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "FKlR",
+      "code_hash": "8902c009fd8226bf8e08ccf860c013d9",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "SZNu",
+      "code_hash": "1b2dfc291e3dc602fdf73dd95ec4728d",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='FKlR-0' random-id='f8bf168d-5cd3-7788-ba9b-1ed39e2f33de'><marimo-anywidget data-initial-value='{&quot;state&quot;:{&quot;branching_factor&quot;:5,&quot;btree_keys&quot;:[1,2,5,6,7,9,12,16,18,1003,1004],&quot;tree&quot;:{&quot;keys&quot;:[5,9,18],&quot;children&quot;:[{&quot;keys&quot;:[1,2],&quot;children&quot;:[]},{&quot;keys&quot;:[6,7],&quot;children&quot;:[]},{&quot;keys&quot;:[12,16],&quot;children&quot;:[]},{&quot;keys&quot;:[1003,1004],&quot;children&quot;:[]}]}},&quot;bufferPaths&quot;:[],&quot;buffers&quot;:[]}' data-label='null' data-js-url='&quot;./@file/5813-11865841-BMcZmqxE.js&quot;' data-js-hash='&quot;806550a7ecff22008a8ce8317de1c2f8&quot;' data-css='&quot;.btree-root {&#92;n  --btree-node-fill: #e4e7ee;&#92;n  --btree-node-fill-dark: #d3d8e4;&#92;n  --btree-node-border: #8b96ad;&#92;n  --btree-node-shadow: rgba(40, 45, 60, 0.18);&#92;n  --btree-edge: #2a2a2a;&#92;n  --btree-shell: #f7f8fb;&#92;n  --btree-shell-border: #c7cdd9;&#92;n  --btree-key-bg: #fdfdff;&#92;n  --btree-key-border: #c7cdd9;&#92;n  font-family: &#92;&quot;Gill Sans&#92;&quot;, &#92;&quot;Trebuchet MS&#92;&quot;, &#92;&quot;Segoe UI&#92;&quot;, sans-serif;&#92;n}&#92;n&#92;n.btree-container {&#92;n  position: relative;&#92;n  padding: 22px 26px 28px;&#92;n  background: linear-gradient(140deg, #ffffff 0%, var(--btree-shell) 100%);&#92;n  border: 2px solid var(--btree-shell-border);&#92;n  border-radius: 10px;&#92;n  overflow: hidden;&#92;n  min-height: 180px;&#92;n}&#92;n&#92;n.btree-tree {&#92;n  position: relative;&#92;n  z-index: 1;&#92;n  display: flex;&#92;n  flex-direction: column;&#92;n  gap: 26px;&#92;n}&#92;n&#92;n.btree-level {&#92;n  display: flex;&#92;n  justify-content: center;&#92;n  gap: 22px;&#92;n  flex-wrap: nowrap;&#92;n}&#92;n&#92;n.btree-node {&#92;n  position: relative;&#92;n  display: inline-flex;&#92;n  flex-direction: column;&#92;n  align-items: center;&#92;n  padding: 8px 14px 14px;&#92;n  min-width: 78px;&#92;n  background: linear-gradient(135deg, var(--btree-node-fill), var(--btree-node-fill-dark));&#92;n  border: 2px solid var(--btree-node-border);&#92;n  border-radius: 12px;&#92;n  box-shadow: 0 10px 18px var(--btree-node-shadow);&#92;n}&#92;n&#92;n.btree-keys {&#92;n  display: flex;&#92;n  gap: 6px;&#92;n  flex-wrap: wrap;&#92;n  justify-content: center;&#92;n}&#92;n&#92;n.btree-node-grid {&#92;n  display: grid;&#92;n  grid-auto-columns: max-content;&#92;n  grid-auto-rows: max-content;&#92;n  column-gap: 6px;&#92;n  row-gap: 6px;&#92;n  align-items: center;&#92;n  justify-items: center;&#92;n}&#92;n&#92;n.btree-key {&#92;n  background: var(--btree-key-bg);&#92;n  color: #222733;&#92;n  padding: 4px 10px;&#92;n  border-radius: 8px;&#92;n  font-weight: 600;&#92;n  font-size: 0.95rem;&#92;n  box-shadow: inset 0 0 0 1px var(--btree-key-border);&#92;n}&#92;n&#92;n.btree-key-empty {&#92;n  opacity: 0.6;&#92;n  font-style: italic;&#92;n}&#92;n&#92;n.btree-pointer {&#92;n  width: 8px;&#92;n  height: 8px;&#92;n  border-radius: 50%;&#92;n  background: #f0f1f4;&#92;n  border: 1px solid #7c879e;&#92;n  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);&#92;n}&#92;n&#92;n.btree-edges {&#92;n  position: absolute;&#92;n  inset: 0;&#92;n  width: 100%;&#92;n  height: 100%;&#92;n  z-index: 3;&#92;n  pointer-events: none;&#92;n}&#92;n&quot;'></marimo-anywidget></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "rHOx",
+      "code_hash": "82efadb291f25cab01ac58756ff96caf",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "DRKp",
+      "code_hash": null,
+      "outputs": [],
+      "console": []
+    }
+  ]
+}
