@@ -80,14 +80,14 @@ function drawEdges({ container, svg, nodeEls, edges }) {
   const defs = document.createElementNS(SVG_NS, "defs");
   const marker = document.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", "btree-arrow");
-  marker.setAttribute("markerWidth", "12");
-  marker.setAttribute("markerHeight", "12");
-  marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "6");
+  marker.setAttribute("markerWidth", "6");
+  marker.setAttribute("markerHeight", "6");
+  marker.setAttribute("refX", "4.5");
+  marker.setAttribute("refY", "3");
   marker.setAttribute("orient", "auto");
 
   const arrowPath = document.createElementNS(SVG_NS, "path");
-  arrowPath.setAttribute("d", "M0,0 L12,6 L0,12 Z");
+  arrowPath.setAttribute("d", "M0,0 L6,3 L0,6 Z");
   arrowPath.setAttribute("fill", "var(--btree-edge)");
   marker.appendChild(arrowPath);
   defs.appendChild(marker);
@@ -110,7 +110,7 @@ function drawEdges({ container, svg, nodeEls, edges }) {
     if (pointerEl) {
       const pointerRect = pointerEl.getBoundingClientRect();
       x1 = pointerRect.left + pointerRect.width / 2 - rect.left;
-      y1 = pointerRect.top + pointerRect.height / 2 - rect.top;
+      y1 = pointerRect.bottom - rect.top + 1;
     }
     const x2 = toRect.left + toRect.width / 2 - rect.left;
     const y2 = toRect.top - rect.top + 6;
@@ -127,7 +127,7 @@ function drawEdges({ container, svg, nodeEls, edges }) {
     path.setAttribute("marker-end", "url(#btree-arrow)");
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", "var(--btree-edge)");
-    path.setAttribute("stroke-width", "2.5");
+    path.setAttribute("stroke-width", "2");
     path.setAttribute("stroke-linecap", "round");
     svg.appendChild(path);
   }

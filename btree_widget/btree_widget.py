@@ -13,10 +13,10 @@ app = marimo.App(width="full")
 def _():
     import bisect
     from pathlib import Path
+    import marimo as mo
 
     import anywidget
     import traitlets
-    import marimo as mo
     return Path, anywidget, bisect, mo, traitlets
 
 
@@ -136,35 +136,23 @@ def _(Path, anywidget, build_btree, traitlets):
 
 
 @app.cell
-def _(BTreeWidget, mo):
-    btree = mo.ui.anywidget(
-        BTreeWidget(
-            keys=[1, 2, 5, 6, 7, 9, 12, 16, 18, 21],
-            branching_factor=5,
-        )
+def _(BTreeWidget):
+    btree = BTreeWidget(
+        keys=[1, 2, 5, 6, 7, 9, 12, 16, 18],
+        branching_factor=5,
     )
     return (btree,)
 
 
 @app.cell
 def _(btree):
-    import time 
-
-    for i in range(20):
-        btree.insert(i)
-        time.sleep(1)
+    btree.remove(6)
     return
 
 
 @app.cell
-def _(btree):
-    btree.remove(1)
-    return
-
-
-@app.cell
-def _(btree):
-    btree
+def _(btree, mo):
+    mo.ui.anywidget(btree)
     return
 
 
