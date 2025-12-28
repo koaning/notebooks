@@ -1,0 +1,215 @@
+.btree-container {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  padding: 20px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.btree-controls {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  padding: 15px;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.control-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.key-input,
+.value-input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 100px;
+}
+
+.value-input {
+  width: 150px;
+}
+
+.action-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.insert-btn {
+  background: #4CAF50;
+  color: white;
+}
+
+.insert-btn:hover {
+  background: #45a049;
+}
+
+.delete-btn {
+  background: #f44336;
+  color: white;
+}
+
+.delete-btn:hover {
+  background: #da190b;
+}
+
+.search-btn {
+  background: #2196F3;
+  color: white;
+}
+
+.search-btn:hover {
+  background: #0b7dda;
+}
+
+.btree-canvas {
+  min-height: 200px;
+  padding: 20px;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.empty-message {
+  text-align: center;
+  color: #999;
+  font-style: italic;
+  padding: 40px;
+}
+
+.btree-node {
+  display: inline-block;
+  margin: 10px;
+  vertical-align: top;
+}
+
+.node-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #fff;
+  border: 2px solid #333;
+  border-radius: 6px;
+  padding: 8px 12px;
+  min-width: 120px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s;
+}
+
+.btree-node.highlighted .node-keys {
+  background: #fff3cd;
+  border-color: #ffc107;
+  box-shadow: 0 2px 12px rgba(255, 193, 7, 0.5);
+  transform: scale(1.05);
+}
+
+.key-value-pair {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.key-value-pair:last-child {
+  border-bottom: none;
+}
+
+.key {
+  font-weight: bold;
+  color: #2196F3;
+  font-size: 14px;
+}
+
+.value {
+  color: #666;
+  font-size: 12px;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-children {
+  display: flex;
+  justify-content: center;
+  margin-top: 15px;
+  position: relative;
+}
+
+.node-children::before {
+  content: '';
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  width: 2px;
+  height: 15px;
+  background: #333;
+  transform: translateX(-50%);
+}
+
+.node-children .btree-node {
+  position: relative;
+}
+
+.node-children .btree-node::before {
+  content: '';
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  width: 2px;
+  height: 15px;
+  background: #333;
+  transform: translateX(-50%);
+}
+
+.node-children .btree-node:not(:first-child)::after {
+  content: '';
+  position: absolute;
+  top: -15px;
+  left: 0;
+  width: 50%;
+  height: 2px;
+  background: #333;
+}
+
+.node-children .btree-node:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: -15px;
+  right: 0;
+  width: 50%;
+  height: 2px;
+  background: #333;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .btree-controls {
+    flex-direction: column;
+  }
+  
+  .control-group {
+    width: 100%;
+  }
+  
+  .key-input,
+  .value-input {
+    flex: 1;
+  }
+}
