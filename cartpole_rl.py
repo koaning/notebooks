@@ -253,12 +253,13 @@ def _():
 
 
 @app.cell
-def _(_reset_agent, _start_training, _training_episodes, agent, env, state_size, action_size):
+def _(_reset_agent, _start_training, _training_episodes, agent, env, state_size, action_size, DQNAgent):
     # Training state
     _training_complete = False
     _episode_rewards = []
     _episode_lengths = []
     _episode_losses = []
+    _current_agent = agent
 
     if _start_training.value:
         _start_training.value = False  # Reset button
@@ -266,7 +267,7 @@ def _(_reset_agent, _start_training, _training_episodes, agent, env, state_size,
         
         # Reset agent if requested
         if _reset_agent.value:
-            agent = DQNAgent(
+            _current_agent = DQNAgent(
                 state_size=state_size,
                 action_size=action_size,
                 learning_rate=0.001,
@@ -282,11 +283,12 @@ def _(_reset_agent, _start_training, _training_episodes, agent, env, state_size,
 
         # Train agent
         _episode_rewards, _episode_lengths, _episode_losses = train_agent(
-            agent, env, episodes=_training_episodes.value
+            _current_agent, env, episodes=_training_episodes.value
         )
         _training_complete = True
 
     return (
+        _current_agent,
         _episode_lengths,
         _episode_losses,
         _episode_rewards,
@@ -295,11 +297,11 @@ def _(_reset_agent, _start_training, _training_episodes, agent, env, state_size,
 
 
 @app.cell
-def _(_episode_rewards, _training_complete, mo):
+def _(_episode_rewards, _episode_lengths, _training_complete, go, make_subplots, mo, np):
     # Dashboard: Learning Progress
     if _training_complete and len(_episode_rewards) > 0:
         # Create subplots
-        fig = make_subplots(
+        _dashboard_fig = make_subplots(
             rows=2,
             cols=2,
             subplot_titles=(
@@ -315,7 +317,7 @@ def _(_episode_rewards, _training_complete, mo):
         episodes = list(range(1, len(_episode_rewards) + 1))
 
         # Episode Rewards
-        fig.add_trace(
+        _dashboard_fig.add_trace(
             go.Scatter(
                 x=episodes,
                 y=_episode_rewards,
@@ -334,7 +336,7 @@ def _(_episode_rewards, _training_complete, mo):
                 np.mean(_episode_rewards[max(0, i - window + 1) : i + 1])
                 for i in range(len(_episode_rewards))
             ]
-            fig.add_trace(
+            _dashboard_fig.add_trace(
                 go.Scatter(
                     x=episodes,
                     y=moving_avg,
@@ -346,7 +348,7 @@ def _(_episode_rewards, _training_complete, mo):
                 col=2,
             )
         else:
-            fig.add_trace(
+            _dashboard_fig.add_trace(
                 go.Scatter(
                     x=episodes,
                     y=_episode_rewards,
@@ -359,7 +361,7 @@ def _(_episode_rewards, _training_complete, mo):
             )
 
         # Episode Lengths
-        fig.add_trace(
+        _dashboard_fig.add_trace(
             go.Scatter(
                 x=episodes,
                 y=_episode_lengths,
@@ -381,7 +383,7 @@ def _(_episode_rewards, _training_complete, mo):
             success_rate = sum(1 for r in recent if r >= success_threshold) / len(recent) * 100
             success_rates.append(success_rate)
 
-        fig.add_trace(
+        _dashboard_fig.add_trace(
             go.Scatter(
                 x=episodes,
                 y=success_rates,
@@ -395,20 +397,20 @@ def _(_episode_rewards, _training_complete, mo):
         )
 
         # Update layout
-        fig.update_layout(
+        _dashboard_fig.update_layout(
             height=800,
             title_text="CartPole DQN Learning Dashboard",
             showlegend=True,
         )
 
-        fig.update_xaxes(title_text="Episode", row=2, col=1)
-        fig.update_xaxes(title_text="Episode", row=2, col=2)
-        fig.update_yaxes(title_text="Reward", row=1, col=1)
-        fig.update_yaxes(title_text="Average Reward", row=1, col=2)
-        fig.update_yaxes(title_text="Steps", row=2, col=1)
-        fig.update_yaxes(title_text="Success Rate (%)", row=2, col=2)
+        _dashboard_fig.update_xaxes(title_text="Episode", row=2, col=1)
+        _dashboard_fig.update_xaxes(title_text="Episode", row=2, col=2)
+        _dashboard_fig.update_yaxes(title_text="Reward", row=1, col=1)
+        _dashboard_fig.update_yaxes(title_text="Average Reward", row=1, col=2)
+        _dashboard_fig.update_yaxes(title_text="Steps", row=2, col=1)
+        _dashboard_fig.update_yaxes(title_text="Success Rate (%)", row=2, col=2)
 
-        _dashboard = mo.ui.plotly(fig)
+        _dashboard = mo.ui.plotly(_dashboard_fig)
     else:
         _dashboard = mo.md("**Training dashboard will appear here after training starts.**")
 
@@ -416,7 +418,7 @@ def _(_episode_rewards, _training_complete, mo):
 
 
 @app.cell
-def _(_episode_rewards, _training_complete):
+def _(_episode_rewards, _training_complete, np):
     # Statistics
     if _training_complete and len(_episode_rewards) > 0:
         _stats = {
@@ -453,7 +455,7 @@ def _():
 
 
 @app.cell
-def _(_test_agent, _training_complete, agent, env, go, gym, mo, np):
+def _(_test_agent, _training_complete, _current_agent, env, go, gym, mo, np):
     # Test the trained agent
     _test_results = None
     if _test_agent.value and _training_complete:
@@ -467,7 +469,7 @@ def _(_test_agent, _training_complete, agent, env, go, gym, mo, np):
         states_history = [state.copy()]
         
         for step in range(500):
-            action = agent.act(state, training=False)  # No exploration during test
+            action = _current_agent.act(state, training=False)  # No exploration during test
             state, reward, terminated, truncated, _ = test_env.step(action)
             done = terminated or truncated
             states_history.append(state.copy())
@@ -486,34 +488,34 @@ def _(_test_agent, _training_complete, agent, env, go, gym, mo, np):
         
         # Create visualization of state trajectory
         states_array = np.array(states_history)
-        fig = go.Figure()
+        _test_fig = go.Figure()
         
-        fig.add_trace(go.Scatter(
+        _test_fig.add_trace(go.Scatter(
             y=states_array[:, 0],
             mode='lines',
             name='Cart Position',
             line=dict(color='blue', width=2)
         ))
-        fig.add_trace(go.Scatter(
+        _test_fig.add_trace(go.Scatter(
             y=states_array[:, 1],
             mode='lines',
             name='Cart Velocity',
             line=dict(color='green', width=2)
         ))
-        fig.add_trace(go.Scatter(
+        _test_fig.add_trace(go.Scatter(
             y=states_array[:, 2],
             mode='lines',
             name='Pole Angle',
             line=dict(color='red', width=2)
         ))
-        fig.add_trace(go.Scatter(
+        _test_fig.add_trace(go.Scatter(
             y=states_array[:, 3],
             mode='lines',
             name='Pole Angular Velocity',
             line=dict(color='orange', width=2)
         ))
         
-        fig.update_layout(
+        _test_fig.update_layout(
             title="Test Episode: State Trajectory",
             xaxis_title="Step",
             yaxis_title="State Value",
@@ -521,7 +523,7 @@ def _(_test_agent, _training_complete, agent, env, go, gym, mo, np):
             showlegend=True,
         )
         
-        _test_visualization = mo.ui.plotly(fig)
+        _test_visualization = mo.ui.plotly(_test_fig)
     elif _test_agent.value and not _training_complete:
         _test_agent.value = False
         _test_results = {"Status": "Please train the agent first!"}
@@ -563,11 +565,6 @@ def _(_dashboard, _stats_display, _start_training, _training_episodes, _reset_ag
         ],
         gap="1rem",
     )
-    return
-
-
-@app.cell
-def _():
     return
 
 
