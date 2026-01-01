@@ -19,7 +19,7 @@ def _():
 
 
 @app.cell
-def _(Path, anywidget, mo, traitlets):
+def _(Path, anywidget, traitlets):
     _ASSET_DIR = Path(__file__).parent
     _JS_SOURCE = (_ASSET_DIR / "fireworks_widget.js").read_text()
     _CSS_SOURCE = (_ASSET_DIR / "fireworks_widget.css").read_text()
@@ -33,8 +33,7 @@ def _(Path, anywidget, mo, traitlets):
         def launch(self):
             """Trigger fireworks animation from Python"""
             self.trigger += 1
-
-    return FireworksWidget
+    return (FireworksWidget,)
 
 
 @app.cell
@@ -58,5 +57,9 @@ def _(fireworks_view):
 @app.cell
 def _(fireworks):
     # You can also trigger fireworks from Python code!
-    # fireworks.launch()
+    fireworks.launch()
     return
+
+
+if __name__ == "__main__":
+    app.run()
