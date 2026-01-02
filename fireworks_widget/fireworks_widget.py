@@ -57,7 +57,7 @@ def _(fireworks_view):
 @app.cell
 def _(fireworks):
     # You can also trigger fireworks from Python code!
-    fireworks.launch()
+    fireworks.launch() 
     return
 
 
