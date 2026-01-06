@@ -144,6 +144,12 @@ def _(Ridge, X_ridge, alphas, np, time, y_ridge):
 
 
 @app.cell
+def _(ridge_results):
+    ridge_results
+    return
+
+
+@app.cell
 def _(go, mo, ridge_results):
     ridge_bar = go.Figure(
         data=[
