@@ -20,7 +20,7 @@ def _():
     return (mo,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     # Warm Starts in Regularized Linear Models
@@ -57,14 +57,14 @@ def _():
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
-    mo.md("""
+    mo.md(r"""
     ## Part 1: Ridge Regression - Closed Form Solution
 
     Ridge regression has the closed-form solution:
 
-    $$\mathbf{w} = (\mathbf{X}^T \mathbf{X} + \alpha \mathbf{I})^{-1} \mathbf{X}^T \mathbf{y}$$
+    $$ \mathbf{w} = (\mathbf{X}^T \mathbf{X} + \alpha \mathbf{I})^{-1} \mathbf{X}^T \mathbf{y} $$
 
     Because of this, **warm starts are irrelevant** - there's no iterative optimization to speed up.
 
@@ -130,14 +130,14 @@ def _(Ridge, X_ridge, alphas, np, time, y_ridge):
     time_svd = time.perf_counter() - start
 
     # Verify both methods produce the same coefficients
-    max_diff = np.abs(coefs_naive - coefs_svd).max()
+    _max_diff = np.abs(coefs_naive - coefs_svd).max()
 
     ridge_results = {
         "naive_time": time_naive,
         "svd_time": time_svd,
         "n_alphas": len(alphas),
         "speedup": time_naive / time_svd,
-        "max_coef_diff": max_diff,
+        "max_coef_diff": _max_diff,
         "coefs_match": np.allclose(coefs_naive, coefs_svd, rtol=1e-5),
     }
     return (ridge_results,)
@@ -170,7 +170,7 @@ def _(go, mo, ridge_results):
 
 @app.cell
 def _(mo, ridge_results):
-    match_status = "✓ Coefficients match!" if ridge_results["coefs_match"] else "✗ Mismatch detected"
+    _match_status = "✓ Coefficients match!" if ridge_results["coefs_match"] else "✗ Mismatch detected"
     mo.md(f"""
     ### Key Insight
 
@@ -180,12 +180,12 @@ def _(mo, ridge_results):
 
     This is why `RidgeCV` is so efficient and why Ridge doesn't have a `warm_start` parameter.
 
-    **Verification**: {match_status} (max difference: {ridge_results['max_coef_diff']:.2e})
+    **Verification**: {_match_status} (max difference: {ridge_results['max_coef_diff']:.2e})
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ---
@@ -280,11 +280,11 @@ def _(
         warm_times.append(time.perf_counter() - start_warm)
         warm_coefs.append(model_warm.coef_.copy())
 
-    cold_coefs_arr = np.array(cold_coefs).squeeze()
-    warm_coefs_arr = np.array(warm_coefs).squeeze()
+    _cold_coefs_arr = np.array(cold_coefs).squeeze()
+    _warm_coefs_arr = np.array(warm_coefs).squeeze()
 
     # Verify both methods produce the same coefficients
-    max_diff = np.abs(cold_coefs_arr - warm_coefs_arr).max()
+    _max_diff = np.abs(_cold_coefs_arr - _warm_coefs_arr).max()
 
     log_results = {
         "cold_total": sum(cold_times),
@@ -292,11 +292,11 @@ def _(
         "cold_times": cold_times,
         "warm_times": warm_times,
         "C_values": C_values,
-        "cold_coefs": cold_coefs_arr,
-        "warm_coefs": warm_coefs_arr,
+        "cold_coefs": _cold_coefs_arr,
+        "warm_coefs": _warm_coefs_arr,
         "speedup": sum(cold_times) / sum(warm_times),
-        "max_coef_diff": max_diff,
-        "coefs_match": np.allclose(cold_coefs_arr, warm_coefs_arr, rtol=1e-4),
+        "max_coef_diff": _max_diff,
+        "coefs_match": np.allclose(_cold_coefs_arr, _warm_coefs_arr, rtol=1e-4),
     }
     return (log_results,)
 
@@ -368,7 +368,7 @@ def _(go, log_results, make_subplots, mo, np):
 
 @app.cell
 def _(log_results, mo):
-    match_status = "✓ Coefficients match!" if log_results["coefs_match"] else "✗ Mismatch detected"
+    _match_status = "✓ Coefficients match!" if log_results["coefs_match"] else "✗ Mismatch detected"
     mo.md(f"""
     ### Why Does Warm Start Help So Much?
 
@@ -380,12 +380,12 @@ def _(log_results, mo):
 
     The optimizer only needs a few iterations to go from "almost there" to "converged".
 
-    **Verification**: {match_status} (max difference: {log_results['max_coef_diff']:.2e})
+    **Verification**: {_match_status} (max difference: {log_results['max_coef_diff']:.2e})
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ---
@@ -425,7 +425,7 @@ def _(go, log_results, mo, np):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ---
@@ -448,7 +448,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ### Code Pattern for Warm Start
