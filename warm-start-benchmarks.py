@@ -42,10 +42,12 @@ def _():
     import numpy as np
     from sklearn.linear_model import Ridge, LogisticRegression
     from sklearn.datasets import make_regression, make_classification
+    from sklearn.model_selection import GridSearchCV
     import time
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     return (
+        GridSearchCV,
         LogisticRegression,
         Ridge,
         go,
@@ -150,23 +152,64 @@ def _(ridge_results):
 
 
 @app.cell
-def _(go, mo, ridge_results):
+def _(GridSearchCV, Ridge, X_ridge, alphas, np, time, y_ridge):
+    # GridSearchCV benchmark - shows the overhead of the sklearn API
+
+    # GridSearchCV with n_jobs=1
+    _start = time.perf_counter()
+    _grid_1 = GridSearchCV(
+        Ridge(fit_intercept=False),
+        param_grid={"alpha": alphas},
+        cv=2,  # minimal CV to reduce time
+        n_jobs=1,
+    )
+    _grid_1.fit(X_ridge, y_ridge)
+    time_grid_1 = time.perf_counter() - _start
+
+    # GridSearchCV with n_jobs=4
+    _start = time.perf_counter()
+    _grid_4 = GridSearchCV(
+        Ridge(fit_intercept=False),
+        param_grid={"alpha": alphas},
+        cv=2,
+        n_jobs=4,
+    )
+    _grid_4.fit(X_ridge, y_ridge)
+    time_grid_4 = time.perf_counter() - _start
+
+    gridsearch_results = {
+        "time_grid_1": time_grid_1,
+        "time_grid_4": time_grid_4,
+        "n_alphas": len(alphas),
+    }
+    return (gridsearch_results,)
+
+
+@app.cell
+def _(go, gridsearch_results, mo, ridge_results):
     ridge_bar = go.Figure(
         data=[
             go.Bar(
-                x=["Naive Loop", "SVD (all at once)"],
-                y=[ridge_results["naive_time"], ridge_results["svd_time"]],
+                x=["Naive Loop", "GridSearchCV (n_jobs=1)", "GridSearchCV (n_jobs=4)", "SVD (all at once)"],
+                y=[
+                    ridge_results["naive_time"],
+                    gridsearch_results["time_grid_1"],
+                    gridsearch_results["time_grid_4"],
+                    ridge_results["svd_time"],
+                ],
                 text=[
                     f"{ridge_results['naive_time']:.3f}s",
+                    f"{gridsearch_results['time_grid_1']:.3f}s",
+                    f"{gridsearch_results['time_grid_4']:.3f}s",
                     f"{ridge_results['svd_time']:.3f}s",
                 ],
                 textposition="auto",
-                marker_color=["#636EFA", "#00CC96"],
+                marker_color=["#636EFA", "#EF553B", "#FFA15A", "#00CC96"],
             )
         ]
     )
     ridge_bar.update_layout(
-        title=f"Ridge: {ridge_results['n_alphas']} alpha values ({ridge_results['speedup']:.1f}x speedup)",
+        title=f"Ridge: {ridge_results['n_alphas']} alpha values (SVD is {ridge_results['speedup']:.1f}x faster than naive loop)",
         yaxis_title="Time (seconds)",
         showlegend=False,
     )
