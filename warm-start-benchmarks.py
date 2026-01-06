@@ -42,12 +42,10 @@ def _():
     import numpy as np
     from sklearn.linear_model import Ridge, LogisticRegression
     from sklearn.datasets import make_regression, make_classification
-    from sklearn.model_selection import GridSearchCV
     import time
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     return (
-        GridSearchCV,
         LogisticRegression,
         Ridge,
         go,
@@ -152,55 +150,49 @@ def _(ridge_results):
 
 
 @app.cell
-def _(GridSearchCV, Ridge, X_ridge, alphas, np, time, y_ridge):
-    # GridSearchCV benchmark - shows the overhead of the sklearn API
+def _(Ridge, X_ridge, alphas, np, time, y_ridge):
+    # Joblib Parallel benchmark - measures parallelization overhead without CV
+    from joblib import Parallel, delayed
 
-    # GridSearchCV with n_jobs=1
+    def _fit_ridge(alpha):
+        _ridge = Ridge(alpha=alpha, solver="cholesky", fit_intercept=False)
+        _ridge.fit(X_ridge, y_ridge)
+        return _ridge.coef_.copy()
+
+    # Joblib with n_jobs=1 (sequential, but with joblib overhead)
     _start = time.perf_counter()
-    _grid_1 = GridSearchCV(
-        Ridge(fit_intercept=False),
-        param_grid={"alpha": alphas},
-        cv=2,  # minimal CV to reduce time
-        n_jobs=1,
-    )
-    _grid_1.fit(X_ridge, y_ridge)
-    time_grid_1 = time.perf_counter() - _start
+    _coefs_joblib_1 = Parallel(n_jobs=1)(delayed(_fit_ridge)(a) for a in alphas)
+    time_joblib_1 = time.perf_counter() - _start
 
-    # GridSearchCV with n_jobs=4
+    # Joblib with n_jobs=4 (parallel)
     _start = time.perf_counter()
-    _grid_4 = GridSearchCV(
-        Ridge(fit_intercept=False),
-        param_grid={"alpha": alphas},
-        cv=2,
-        n_jobs=4,
-    )
-    _grid_4.fit(X_ridge, y_ridge)
-    time_grid_4 = time.perf_counter() - _start
+    _coefs_joblib_4 = Parallel(n_jobs=4)(delayed(_fit_ridge)(a) for a in alphas)
+    time_joblib_4 = time.perf_counter() - _start
 
-    gridsearch_results = {
-        "time_grid_1": time_grid_1,
-        "time_grid_4": time_grid_4,
+    joblib_results = {
+        "time_joblib_1": time_joblib_1,
+        "time_joblib_4": time_joblib_4,
         "n_alphas": len(alphas),
     }
-    return (gridsearch_results,)
+    return (joblib_results,)
 
 
 @app.cell
-def _(go, gridsearch_results, mo, ridge_results):
+def _(go, joblib_results, mo, ridge_results):
     ridge_bar = go.Figure(
         data=[
             go.Bar(
-                x=["Naive Loop", "GridSearchCV (n_jobs=1)", "GridSearchCV (n_jobs=4)", "SVD (all at once)"],
+                x=["Naive Loop", "Joblib (n_jobs=1)", "Joblib (n_jobs=4)", "SVD (all at once)"],
                 y=[
                     ridge_results["naive_time"],
-                    gridsearch_results["time_grid_1"],
-                    gridsearch_results["time_grid_4"],
+                    joblib_results["time_joblib_1"],
+                    joblib_results["time_joblib_4"],
                     ridge_results["svd_time"],
                 ],
                 text=[
                     f"{ridge_results['naive_time']:.3f}s",
-                    f"{gridsearch_results['time_grid_1']:.3f}s",
-                    f"{gridsearch_results['time_grid_4']:.3f}s",
+                    f"{joblib_results['time_joblib_1']:.3f}s",
+                    f"{joblib_results['time_joblib_4']:.3f}s",
                     f"{ridge_results['svd_time']:.3f}s",
                 ],
                 textposition="auto",
