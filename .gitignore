@@ -1,2 +1,4 @@
 # Manim output
 media/
+slides/
+__pycache__/
