@@ -150,23 +150,58 @@ def _(ridge_results):
 
 
 @app.cell
-def _(go, mo, ridge_results):
+def _(Ridge, X_ridge, alphas, np, time, y_ridge):
+    # Joblib Parallel benchmark - measures parallelization overhead without CV
+    from joblib import Parallel, delayed
+
+    def _fit_ridge(alpha):
+        _ridge = Ridge(alpha=alpha, solver="cholesky", fit_intercept=False)
+        _ridge.fit(X_ridge, y_ridge)
+        return _ridge.coef_.copy()
+
+    # Joblib with n_jobs=1 (sequential, but with joblib overhead)
+    _start = time.perf_counter()
+    _coefs_joblib_1 = Parallel(n_jobs=1)(delayed(_fit_ridge)(a) for a in alphas)
+    time_joblib_1 = time.perf_counter() - _start
+
+    # Joblib with n_jobs=4 (parallel)
+    _start = time.perf_counter()
+    _coefs_joblib_4 = Parallel(n_jobs=4)(delayed(_fit_ridge)(a) for a in alphas)
+    time_joblib_4 = time.perf_counter() - _start
+
+    joblib_results = {
+        "time_joblib_1": time_joblib_1,
+        "time_joblib_4": time_joblib_4,
+        "n_alphas": len(alphas),
+    }
+    return (joblib_results,)
+
+
+@app.cell
+def _(go, joblib_results, mo, ridge_results):
     ridge_bar = go.Figure(
         data=[
             go.Bar(
-                x=["Naive Loop", "SVD (all at once)"],
-                y=[ridge_results["naive_time"], ridge_results["svd_time"]],
+                x=["Naive Loop", "Joblib (n_jobs=1)", "Joblib (n_jobs=4)", "SVD (all at once)"],
+                y=[
+                    ridge_results["naive_time"],
+                    joblib_results["time_joblib_1"],
+                    joblib_results["time_joblib_4"],
+                    ridge_results["svd_time"],
+                ],
                 text=[
                     f"{ridge_results['naive_time']:.3f}s",
+                    f"{joblib_results['time_joblib_1']:.3f}s",
+                    f"{joblib_results['time_joblib_4']:.3f}s",
                     f"{ridge_results['svd_time']:.3f}s",
                 ],
                 textposition="auto",
-                marker_color=["#636EFA", "#00CC96"],
+                marker_color=["#636EFA", "#EF553B", "#FFA15A", "#00CC96"],
             )
         ]
     )
     ridge_bar.update_layout(
-        title=f"Ridge: {ridge_results['n_alphas']} alpha values ({ridge_results['speedup']:.1f}x speedup)",
+        title=f"Ridge: {ridge_results['n_alphas']} alpha values (SVD is {ridge_results['speedup']:.1f}x faster than naive loop)",
         yaxis_title="Time (seconds)",
         showlegend=False,
     )
