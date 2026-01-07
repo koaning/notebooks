@@ -1,0 +1,70 @@
+.maze-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: sans-serif;
+}
+
+.maze-grid {
+    display: grid;
+    gap: 2px;
+    background-color: #333;
+    border: 2px solid #333;
+    margin-bottom: 1rem;
+}
+
+.maze-cell {
+    width: 30px;
+    height: 30px;
+    background-color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    font-size: 10px;
+    color: #555;
+    user-select: none;
+}
+
+.cell-wall {
+    background-color: #000;
+}
+
+.cell-start {
+    background-color: #e0f7fa;
+}
+
+.cell-goal {
+    background-color: #a5d6a7;
+}
+
+.agent {
+    width: 20px;
+    height: 20px;
+    background-color: #f44336;
+    border-radius: 50%;
+    position: absolute;
+    transition: all 0.2s ease-in-out;
+    z-index: 10;
+}
+
+.q-value-overlay {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    opacity: 0.3;
+}
+
+.arrow {
+    position: absolute;
+    font-size: 20px;
+    font-weight: bold;
+    color: rgba(0, 0, 0, 0.5);
+    display: none;
+}
+
+.arrow.visible {
+    display: block;
+}
