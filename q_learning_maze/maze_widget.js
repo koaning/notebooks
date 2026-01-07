@@ -38,25 +38,55 @@ function render({ model, el }) {
                 if (cellType === 1) cell.classList.add("cell-wall");
                 else if (cellType === 2) cell.classList.add("cell-start");
                 else if (cellType === 3) cell.classList.add("cell-goal");
+                else if (cellType === 4) cell.classList.add("cell-danger");
 
                 // Arrow for policy visualization (optional)
                 const arrow = document.createElement("span");
                 arrow.classList.add("arrow");
                 cell.appendChild(arrow);
+                
+                // Add click listener for editing
+                cell.onclick = () => handleCellClick(r, c);
 
                 gridDiv.appendChild(cell);
                 cells.push(cell);
             });
         });
+    }
 
-        // Add agent to the grid container, but position absolutely relative to cells? 
-        // Actually, let's put agent inside the correct cell or translate it.
-        // Translating over the grid is smoother.
-        // Let's append agent to the gridDiv and use transforms.
-        // gridDiv needs relative positioning for this to work well if we want smooth transitions across gaps.
-        // But simply appending to the current cell is easier for DOM updates, though less smooth if animating.
-        // Let's stick to appending to the target cell for simplicity and robustness first.
-        // Or overlay.
+    function handleCellClick(r, c) {
+        const layout = model.get("maze_layout");
+        const tool = model.get("active_tool"); // 0=Empty, 1=Wall, 2=Start, 3=Goal, 4=Danger
+        
+        // Create a copy to trigger change
+        const newLayout = JSON.parse(JSON.stringify(layout));
+        
+        // Enforce single start/goal if needed, but let's just overwrite for now.
+        // If placing start/goal, maybe clear others? 
+        // For simplicity, let python handle validation or just allow multiple for now (though logic might break).
+        // Let's enforce single start/goal in UI logic here for better UX.
+        
+        if (tool === 2) { // Start
+            // Remove other starts
+            for(let i=0; i<newLayout.length; i++) {
+                for(let j=0; j<newLayout[0].length; j++) {
+                    if (newLayout[i][j] === 2) newLayout[i][j] = 0;
+                }
+            }
+        }
+        
+        // If overwriting a start/goal, handle that? 
+        // No, just overwrite.
+        
+        newLayout[r][c] = tool;
+        
+        // If we just placed a start, update agent position too?
+        if (tool === 2) {
+            model.set("agent_position", [r, c]);
+        }
+        
+        model.set("maze_layout", newLayout);
+        model.save_changes();
     }
 
     function updateAgent() {

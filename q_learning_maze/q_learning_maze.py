@@ -39,6 +39,7 @@ def _(Path, anywidget, traitlets):
         # Full Q-table: List of List of List (Rows x Cols x 4)
         q_values = traitlets.List(traitlets.List(traitlets.List(traitlets.Float()))).tag(sync=True)
         show_q_values = traitlets.Bool(default_value=False).tag(sync=True)
+        active_tool = traitlets.Int(default_value=0).tag(sync=True)
 
         def __init__(self, layout, start_pos):
             super().__init__()
@@ -97,12 +98,12 @@ def _(np, random):
 @app.cell
 def _(MazeWidget, QLearningAgent, mo, np, time):
     # Default Maze Layout
-    # 0=Empty, 1=Wall, 2=Start, 3=Goal
+    # 0=Empty, 1=Wall, 2=Start, 3=Goal, 4=Danger
     DEFAULT_MAZE = [
         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         [1, 2, 0, 0, 1, 0, 0, 0, 0, 1],
         [1, 0, 1, 0, 1, 0, 1, 1, 0, 1],
-        [1, 0, 1, 0, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 0, 0, 4, 0, 1, 0, 1], # Added a Danger spot (4)
         [1, 0, 1, 1, 1, 1, 0, 1, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 1, 3, 1],
         [1, 1, 1, 0, 1, 1, 0, 1, 1, 1],
@@ -110,8 +111,7 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     ]
     START_POS = [1, 1]
-    GOAL_POS = [5, 8]
-
+    
     # Initialize Widget
     maze_widget = MazeWidget(layout=DEFAULT_MAZE, start_pos=START_POS)
     
@@ -123,6 +123,12 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
     
     show_q_toggle = mo.ui.switch(label="Show Q-Values", value=False)
     
+    tool_selector = mo.ui.radio(
+        options={"Empty": 0, "Wall": 1, "Start": 2, "Goal": 3, "Danger": 4},
+        value=0,
+        label="Edit Tool"
+    )
+
     start_btn = mo.ui.run_button(label="Train Episode")
     reset_btn = mo.ui.button(label="Reset Q-Table")
 
@@ -130,16 +136,30 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
     agent_ref = {"obj": QLearningAgent(len(DEFAULT_MAZE), len(DEFAULT_MAZE[0]))}
 
     def reset_agent():
+        # Re-read dimensions from current widget state in case it changed (though resizing isn't supported yet, but layout content is)
+        current_layout = maze_widget.maze_layout
+        rows = len(current_layout)
+        cols = len(current_layout[0])
+        
         agent_ref["obj"] = QLearningAgent(
-            len(DEFAULT_MAZE), 
-            len(DEFAULT_MAZE[0]),
+            rows, 
+            cols,
             alpha=alpha_slider.value,
             gamma=gamma_slider.value,
             epsilon=epsilon_slider.value
         )
-        maze_widget.policy_grid = [[-1]*10]*9 # Clear arrows
+        maze_widget.policy_grid = [[-1]*cols]*rows # Clear arrows
         maze_widget.q_values = []
-        maze_widget.agent_position = START_POS
+        
+        # Reset position to current start
+        start_found = False
+        for r in range(rows):
+            for c in range(cols):
+                if current_layout[r][c] == 2:
+                    maze_widget.agent_position = [r, c]
+                    start_found = True
+                    break
+            if start_found: break
 
     def run_episode():
         agent = agent_ref["obj"]
@@ -148,7 +168,19 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
         agent.gamma = gamma_slider.value
         agent.epsilon = epsilon_slider.value
         
-        state = list(START_POS)
+        # Find start and goal from current layout
+        layout = maze_widget.maze_layout
+        start_pos = None
+        goal_pos = None
+        
+        for r, row in enumerate(layout):
+            for c, cell in enumerate(row):
+                if cell == 2: start_pos = [r, c]
+                elif cell == 3: goal_pos = [r, c]
+        
+        if not start_pos: return # No start
+        
+        state = list(start_pos)
         maze_widget.agent_position = state
         done = False
         steps = 0
@@ -165,16 +197,26 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
             elif action == 2: next_r += 1
             elif action == 3: next_c -= 1
             
-            # Check bounds and walls
-            if DEFAULT_MAZE[next_r][next_c] == 1: # Wall
-                next_state = state # Stay put
-                reward = -1
+            # Check bounds
+            if next_r < 0 or next_r >= len(layout) or next_c < 0 or next_c >= len(layout[0]):
+                next_state = state
+                reward = -1 # Wall penalty
             else:
-                next_state = [next_r, next_c]
-                if next_state == GOAL_POS:
+                cell_type = layout[next_r][next_c]
+                
+                if cell_type == 1: # Wall
+                    next_state = state
+                    reward = -1
+                elif cell_type == 3: # Goal
+                    next_state = [next_r, next_c]
                     reward = 100
                     done = True
-                else:
+                elif cell_type == 4: # Danger
+                    next_state = [next_r, next_c]
+                    reward = -100
+                    done = True # Lose life / End episode
+                else: # Empty or Start (treated as empty)
+                    next_state = [next_r, next_c]
                     reward = -0.1 # Step cost
             
             agent.learn(tuple(state), action, reward, tuple(next_state))
@@ -194,7 +236,6 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
 
     return (
         DEFAULT_MAZE,
-        GOAL_POS,
         START_POS,
         agent_ref,
         alpha_slider,
@@ -207,6 +248,7 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
         show_q_toggle,
         speed_slider,
         start_btn,
+        tool_selector,
     )
 
 
@@ -229,6 +271,7 @@ def _(
     show_q_toggle,
     speed_slider,
     start_btn,
+    tool_selector,
 ):
     # UI Layout
     
@@ -242,6 +285,8 @@ def _(
 
     # Sync toggle
     maze_widget.show_q_values = show_q_toggle.value
+    # Sync tool
+    maze_widget.active_tool = tool_selector.value
 
     mo.vstack([
         mo.hstack([maze_widget, mo.vstack([
@@ -253,7 +298,9 @@ def _(
             alpha_slider,
             gamma_slider,
             speed_slider,
-            show_q_toggle
+            show_q_toggle,
+            mo.md("---"),
+            tool_selector
         ])], align="start", gap="2rem"),
     ])
     return
