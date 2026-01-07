@@ -75,50 +75,94 @@ function render({ model, el }) {
         }
     }
 
-    function updatePolicy() {
-        // q_values is a list of lists of 4 floats [up, right, down, left]
-        // or simplified: policy_grid which is just directions.
-        // Let's assume we get a "policy_arrows" grid of strings.
-        const policy = model.get("policy_grid");
-        if (!policy || policy.length === 0) return;
+    function getColorForValue(val, minVal, maxVal) {
+        // Normalize to 0-1
+        if (maxVal === minVal) return 'rgba(0,0,0,0)';
+        
+        // Simple heatmap: Red (low) -> Yellow -> Green (high)
+        // Or simpler: transparent -> Green (positive), transparent -> Red (negative)
+        
+        // Let's use HSL.
+        // -1 (bad) -> Red (0)
+        // 100 (good) -> Green (120)
+        // 0 -> somewhat neutral?
+        
+        // Use a fixed range for stability: -1 to 100
+        // Or dynamic range from data?
+        // Dynamic is better for visibility.
+        
+        let normalized = (val - minVal) / (maxVal - minVal);
+        normalized = Math.max(0, Math.min(1, normalized));
+        
+        // Hue from 0 (red) to 120 (green)
+        const hue = normalized * 120;
+        return `hsla(${hue}, 80%, 50%, 0.6)`;
+    }
+
+    function updateQValues() {
+        const show = model.get("show_q_values");
+        const qGrid = model.get("q_values"); // [rows][cols][4]
+        
+        if (!show || !qGrid || qGrid.length === 0) {
+            cells.forEach(cell => {
+                const overlay = cell.querySelector(".q-overlay");
+                if (overlay) overlay.classList.remove("visible");
+            });
+            return;
+        }
+
+        // Find global min/max for coloring
+        let minVal = Infinity;
+        let maxVal = -Infinity;
+        qGrid.forEach(row => {
+            row.forEach(cellActions => {
+                cellActions.forEach(val => {
+                    if (val < minVal) minVal = val;
+                    if (val > maxVal) maxVal = val;
+                });
+            });
+        });
+        
+        // If all zeros, avoid div by zero
+        if (minVal === 0 && maxVal === 0) {
+            maxVal = 1; 
+        }
 
         const layout = model.get("maze_layout");
-        
         cells.forEach((cell, i) => {
             const r = Math.floor(i / layout[0].length);
             const c = i % layout[0].length;
-            const arrow = cell.querySelector(".arrow");
+            let overlay = cell.querySelector(".q-overlay");
             
-            if (policy[r] && policy[r][c]) {
-                const direction = policy[r][c];
-                arrow.textContent = getArrowChar(direction);
-                arrow.classList.add("visible");
+            if (!overlay) {
+                overlay = document.createElement("div");
+                overlay.classList.add("q-overlay");
+                cell.appendChild(overlay);
+            }
+            
+            const vals = qGrid[r][c]; // [up, right, down, left]
+            
+            // Only show if not a wall?
+            const isWall = layout[r][c] === 1;
+            
+            if (isWall) {
+                overlay.classList.remove("visible");
             } else {
-                arrow.classList.remove("visible");
+                overlay.classList.add("visible");
+                overlay.style.borderTopColor = getColorForValue(vals[0], minVal, maxVal);
+                overlay.style.borderRightColor = getColorForValue(vals[1], minVal, maxVal);
+                overlay.style.borderBottomColor = getColorForValue(vals[2], minVal, maxVal);
+                overlay.style.borderLeftColor = getColorForValue(vals[3], minVal, maxVal);
             }
         });
     }
-
-    function getArrowChar(dir) {
-        if (dir === 0) return "↑"; // Up
-        if (dir === 1) return "→"; // Right
-        if (dir === 2) return "↓"; // Down
-        if (dir === 3) return "←"; // Left
-        return "";
-    }
-
-    function updateStatus() {
-         // Could sync status text like "Episode: 5, Reward: 10"
-    }
-
-    // Initial render
-    initGrid();
-    updateAgent();
 
     // Listeners
     model.on("change:maze_layout", initGrid);
     model.on("change:agent_position", updateAgent);
     model.on("change:policy_grid", updatePolicy);
+    model.on("change:q_values", updateQValues);
+    model.on("change:show_q_values", updateQValues);
 }
 
 export default { render };

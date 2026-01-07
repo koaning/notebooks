@@ -36,12 +36,16 @@ def _(Path, anywidget, traitlets):
         agent_position = traitlets.List(traitlets.Int()).tag(sync=True)
         # Grid of directions (0=Up, 1=Right, 2=Down, 3=Left, -1=None)
         policy_grid = traitlets.List(traitlets.List(traitlets.Int())).tag(sync=True)
+        # Full Q-table: List of List of List (Rows x Cols x 4)
+        q_values = traitlets.List(traitlets.List(traitlets.List(traitlets.Float()))).tag(sync=True)
+        show_q_values = traitlets.Bool(default_value=False).tag(sync=True)
 
         def __init__(self, layout, start_pos):
             super().__init__()
             self.maze_layout = layout
             self.agent_position = start_pos
             self.policy_grid = [[-1] * len(row) for row in layout]
+            self.q_values = []
 
     return (MazeWidget,)
 
@@ -117,6 +121,8 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
     gamma_slider = mo.ui.slider(0.0, 1.0, step=0.01, value=0.9, label="Gamma (Discount)")
     speed_slider = mo.ui.slider(0.01, 1.0, step=0.01, value=0.1, label="Step Delay (s)")
     
+    show_q_toggle = mo.ui.switch(label="Show Q-Values", value=False)
+    
     start_btn = mo.ui.run_button(label="Train Episode")
     reset_btn = mo.ui.button(label="Reset Q-Table")
 
@@ -132,6 +138,7 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
             epsilon=epsilon_slider.value
         )
         maze_widget.policy_grid = [[-1]*10]*9 # Clear arrows
+        maze_widget.q_values = []
         maze_widget.agent_position = START_POS
 
     def run_episode():
@@ -175,11 +182,15 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
             
             # Update UI
             maze_widget.agent_position = state
+            if steps % 5 == 0: # Update occasionally to save overhead
+                 maze_widget.q_values = agent.q_table.tolist()
+            
             steps += 1
             time.sleep(speed_slider.value)
         
         # Update policy view after episode
         maze_widget.policy_grid = agent.get_policy_grid()
+        maze_widget.q_values = agent.q_table.tolist()
 
     return (
         DEFAULT_MAZE,
@@ -193,6 +204,7 @@ def _(MazeWidget, QLearningAgent, mo, np, time):
         reset_agent,
         reset_btn,
         run_episode,
+        show_q_toggle,
         speed_slider,
         start_btn,
     )
@@ -214,6 +226,7 @@ def _(
     reset_agent,
     reset_btn,
     run_episode,
+    show_q_toggle,
     speed_slider,
     start_btn,
 ):
@@ -227,6 +240,9 @@ def _(
     if start_btn.value:
         run_episode()
 
+    # Sync toggle
+    maze_widget.show_q_values = show_q_toggle.value
+
     mo.vstack([
         mo.hstack([maze_widget, mo.vstack([
             mo.md("### Controls"),
@@ -236,7 +252,8 @@ def _(
             epsilon_slider,
             alpha_slider,
             gamma_slider,
-            speed_slider
+            speed_slider,
+            show_q_toggle
         ])], align="start", gap="2rem"),
     ])
     return
