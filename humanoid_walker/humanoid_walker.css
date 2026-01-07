@@ -1,0 +1,21 @@
+.humanoid-walker-widget {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    overflow: hidden;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.humanoid-walker-canvas {
+    width: 100%;
+    height: 400px;
+    background-color: #f0f0f0;
+    display: block;
+}
+
+.controls {
+    padding: 10px;
+    background: #fff;
+    border-top: 1px solid #eee;
+}
