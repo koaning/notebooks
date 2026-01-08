@@ -1,4 +1,4 @@
-from random import random_ui64, seed
+from random import seed, shuffle
 from python import PythonObject, Python
 from python.bindings import PythonModuleBuilder
 
@@ -25,16 +25,6 @@ fn max_cycle_length(perm: List[Int]) -> Int:
     return max_len
 
 
-fn fisher_yates_shuffle(mut perm: List[Int]):
-    """Shuffle a list in place using Fisher-Yates algorithm."""
-    var n = len(perm)
-    for i in range(n - 1, 0, -1):
-        var j = Int(random_ui64(0, i))
-        var tmp = perm[i]
-        perm[i] = perm[j]
-        perm[j] = tmp
-
-
 fn simulate_mojo_internal(n_prisoners: Int, n_sims: Int) -> List[Int]:
     """Run n_sims simulations and return max cycle lengths."""
     var results = List[Int](capacity=n_sims)
@@ -43,7 +33,7 @@ fn simulate_mojo_internal(n_prisoners: Int, n_sims: Int) -> List[Int]:
         var perm = List[Int](capacity=n_prisoners)
         for i in range(n_prisoners):
             perm.append(i)
-        fisher_yates_shuffle(perm)
+        shuffle(perm)  # Use stdlib shuffle
         results.append(max_cycle_length(perm))
 
     return results^

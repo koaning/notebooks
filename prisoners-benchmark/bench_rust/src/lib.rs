@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
-use rand::seq::SliceRandom;
 use rand::thread_rng;
+use rip_shuffle::RipShuffleSequential;
 
 /// Find the maximum cycle length in a single permutation.
 fn max_cycle_length(perm: &[usize]) -> usize {
@@ -33,9 +33,9 @@ fn simulate_rust(n_prisoners: usize, n_sims: usize) -> Vec<usize> {
     let mut results = Vec::with_capacity(n_sims);
 
     for _ in 0..n_sims {
-        // Create and shuffle permutation
+        // Create and shuffle permutation using rip_shuffle (1.5-4x faster)
         let mut perm: Vec<usize> = (0..n_prisoners).collect();
-        perm.shuffle(&mut rng);
+        perm.seq_shuffle(&mut rng);
 
         results.push(max_cycle_length(&perm));
     }

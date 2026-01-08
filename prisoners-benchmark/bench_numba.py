@@ -5,38 +5,41 @@ from numba import njit
 
 
 @njit
-def max_cycle_length_numba(perm):
-    """Find the maximum cycle length in a permutation (Numba JIT)."""
-    n = len(perm)
-    visited = np.zeros(n, dtype=np.bool_)
-    max_len = 0
-    for start in range(n):
-        if visited[start]:
-            continue
-        length = 0
-        current = start
-        while not visited[current]:
-            visited[current] = True
-            length += 1
-            current = perm[current]
-        if length > max_len:
-            max_len = length
-    return max_len
+def _simulate_numba_jit(n_prisoners: int, n_sims: int) -> np.ndarray:
+    """Fully JIT-compiled simulation loop."""
+    results = np.empty(n_sims, dtype=np.int64)
+
+    for i in range(n_sims):
+        perm = np.random.permutation(n_prisoners)
+
+        # Inline max_cycle_length logic for performance
+        n = len(perm)
+        visited = np.zeros(n, dtype=np.bool_)
+        max_len = 0
+        for start in range(n):
+            if visited[start]:
+                continue
+            length = 0
+            current = start
+            while not visited[current]:
+                visited[current] = True
+                length += 1
+                current = perm[current]
+            if length > max_len:
+                max_len = length
+        results[i] = max_len
+
+    return results
 
 
 def simulate_numba(n_prisoners: int, n_sims: int) -> list[int]:
     """Run simulations using Numba JIT-compiled function."""
-    results = []
-    for _ in range(n_sims):
-        perm = np.random.permutation(n_prisoners).astype(np.int64)
-        results.append(max_cycle_length_numba(perm))
-    return results
+    return list(_simulate_numba_jit(n_prisoners, n_sims))
 
 
 def warmup():
     """Warm up Numba JIT compilation."""
-    perm = np.random.permutation(100).astype(np.int64)
-    max_cycle_length_numba(perm)
+    _simulate_numba_jit(100, 10)
 
 
 if __name__ == "__main__":
