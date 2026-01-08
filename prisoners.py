@@ -407,6 +407,24 @@ def _(mo, n_prisoners, np):
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""
+    ## Extra detail
+
+    At this point you might think, "well, that's all very nice", but what if I am prisoner 42. I would select box 42 and walk along the cycle. What guarantees mee that my number is on the cycle that I am on right now?
+
+    For any position to be part of a cycle, something must point to it — that's what makes it a cycle rather than a dead end.
+
+    $... \Rightarrow a \Rightarrow 42 \Rightarrow b \Rightarrow ...$
+
+    The box that points to position 42 is, by definition, the box containing slip 42. Otherwise we would not be in a cycle!
+
+    Therefore, when prisoner 42 traverses their cycle, they must pass through this predecessor box to complete the loop, and that's exactly where their slip is.
+    """)
+    return
+
+
+@app.cell
 def _():
     return
 
