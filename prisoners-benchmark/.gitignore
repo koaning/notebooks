@@ -1,0 +1,11 @@
+# Rust build artifacts
+bench_rust/target/
+bench_rust/Cargo.lock
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# uv
+uv.lock
