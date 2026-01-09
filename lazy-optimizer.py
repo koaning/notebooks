@@ -275,18 +275,12 @@ def _(LazyOptimizer, SimpleMLP, clone_model, nn, torch):
         start = time.perf_counter()
 
         for _epoch in range(epochs):
-            def closure(compute_grad=True):
-                if compute_grad:
-                    optimizer.zero_grad()
-                    output = model(X)
-                    loss = loss_fn(output, y)
-                    loss.backward()
-                    return loss
-                else:
-                    # Forward-only evaluation for backtracking
-                    with torch.no_grad():
-                        output = model(X)
-                        return loss_fn(output, y)
+            def closure():
+                optimizer.zero_grad()
+                output = model(X)
+                loss = loss_fn(output, y)
+                loss.backward()
+                return loss
 
             loss = optimizer.step(closure)
             losses.append(loss.item())
@@ -350,7 +344,6 @@ def _(
     hidden_dim_slider,
     is_script_mode,
     lr_slider,
-    mo,
     n_hidden_slider,
     run_training,
     step_size_slider,
@@ -374,22 +367,15 @@ def _(
             print("Training complete!")
         else:
             print(f"Cannot train: {data_error}")
-    else:
-        # Interactive mode - wait for button click
-        if train_button.value and not data_error:
-            training_results = run_training(
-                X_data, y_data,
-                lr=lr_slider.value,
-                step_size=step_size_slider.value,
-                epochs=epochs_slider.value,
-                hidden_dim=hidden_dim_slider.value,
-                n_hidden=n_hidden_slider.value
-            )
-            mo.md("**Training complete!**")
-        elif data_error:
-            mo.md(f"**Cannot train:** {data_error}")
-        else:
-            mo.md("*Click 'Train Models' to start training*")
+    elif train_button.value and not data_error:
+        training_results = run_training(
+            X_data, y_data,
+            lr=lr_slider.value,
+            step_size=step_size_slider.value,
+            epochs=epochs_slider.value,
+            hidden_dim=hidden_dim_slider.value,
+            n_hidden=n_hidden_slider.value
+        )
     return (training_results,)
 
 
@@ -459,22 +445,22 @@ def _(X_data, np, plt, torch, training_results, y_data):
     X_np = X_data.numpy()
     y_np = y_data.numpy()
 
-    for ax, (_name, _model) in zip(axes, models_info):
-        x_min, x_max = X_np[:, 0].min() - 0.5, X_np[:, 0].max() + 0.5
-        y_min, y_max = X_np[:, 1].min() - 0.5, X_np[:, 1].max() + 0.5
-        xx, yy = np.meshgrid(
-            np.linspace(x_min, x_max, 100),
-            np.linspace(y_min, y_max, 100)
-        )
+    x_min, x_max = X_np[:, 0].min() - 0.5, X_np[:, 0].max() + 0.5
+    y_min, y_max = X_np[:, 1].min() - 0.5, X_np[:, 1].max() + 0.5
+    xx, yy = np.meshgrid(
+        np.linspace(x_min, x_max, 100),
+        np.linspace(y_min, y_max, 100)
+    )
+    grid = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32)
 
-        grid = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32)
+    for ax, (_name, _model) in zip(axes, models_info):
         with torch.no_grad():
             Z = _model(grid).argmax(dim=1).numpy()
         Z = Z.reshape(xx.shape)
 
         ax.contourf(xx, yy, Z, alpha=0.3, cmap='RdYlBu')
         ax.scatter(X_np[:, 0], X_np[:, 1], c=y_np, cmap='RdYlBu', edgecolors='black', s=50)
-        ax.set_title(f'{_name}')
+        ax.set_title(_name)
         ax.set_xlabel('x')
         ax.set_ylabel('y')
 
