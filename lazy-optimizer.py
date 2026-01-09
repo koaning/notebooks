@@ -344,7 +344,6 @@ def _(
     hidden_dim_slider,
     is_script_mode,
     lr_slider,
-    mo,
     n_hidden_slider,
     run_training,
     step_size_slider,
