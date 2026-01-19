@@ -607,7 +607,7 @@ def _(Suguru, generate_regions, np, solve_suguru, time):
         max_region_tries: int = 200,
         max_fill_tries: int = 200,
         max_seconds: float = 5.0,
-    ) -> tuple[Suguru, np.ndarray, np.ndarray]:
+    ) -> tuple[Suguru | None, np.ndarray | None, np.ndarray | None]:
         """
         Generate a (problem, givens, solution).
 
@@ -651,7 +651,7 @@ def _(Suguru, generate_regions, np, solve_suguru, time):
             break
 
         if problem is None or solution is None:
-            raise RuntimeError("Failed to generate a solvable region partition; try different settings.")
+            return None, None, None
 
         # Start with full solution as givens, then carve.
         givens = solution.copy()
@@ -695,9 +695,9 @@ def _(cols, generate_puzzle, is_script_mode, max_room, new_button, rows, seed_in
     if is_script_mode:
         rows_eff = min(rows, 5)
         cols_eff = min(cols, 5)
-        max_room_eff = min(max_room, 4)
+        max_room_eff = min(max_room, 5)
         target_clues_eff = min(target_clues, (rows_eff * cols_eff) // 2)
-        max_seconds = 2.5
+        max_seconds = 12.0
     else:
         rows_eff = rows
         cols_eff = cols
@@ -705,14 +705,25 @@ def _(cols, generate_puzzle, is_script_mode, max_room, new_button, rows, seed_in
         target_clues_eff = target_clues
         max_seconds = 8.0
 
-    problem, givens, solution = generate_puzzle(
-        rows=rows_eff,
-        cols=cols_eff,
-        max_room=max_room_eff,
-        target_clues=target_clues_eff,
-        seed=seed,
-        max_seconds=max_seconds,
-    )
+    # Generation can fail for some random seeds/region partitions.
+    # In script mode we want `uv run` to be robust, so retry a few seeds.
+    problem = None
+    givens = None
+    solution = None
+    for attempt in range(50 if is_script_mode else 5):
+        problem, givens, solution = generate_puzzle(
+            rows=rows_eff,
+            cols=cols_eff,
+            max_room=max_room_eff,
+            target_clues=target_clues_eff,
+            seed=seed + attempt,
+            max_seconds=max_seconds,
+        )
+        if problem is not None:
+            break
+
+    if problem is None or givens is None or solution is None:
+        raise RuntimeError("Failed to generate a solvable region partition; try different settings.")
     return givens, problem, seed, solution
 
 
