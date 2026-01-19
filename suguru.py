@@ -606,6 +606,7 @@ def _(Suguru, generate_regions, np, solve_suguru, time):
         *,
         max_region_tries: int = 200,
         max_fill_tries: int = 200,
+        max_seconds: float = 5.0,
     ) -> tuple[Suguru, np.ndarray, np.ndarray]:
         """
         Generate a (problem, givens, solution).
@@ -623,12 +624,16 @@ def _(Suguru, generate_regions, np, solve_suguru, time):
 
         # Find a region partition that admits at least one solution.
         for _ in range(max_region_tries):
+            if time.time() - t0 > max_seconds:
+                break
             regions = generate_regions(rows, cols, max_room, rng)
             candidate = Suguru(rows=rows, cols=cols, regions=regions)
 
             # try to fill; might fail if regions + adjacency are too restrictive
             filled = None
             for _ in range(max_fill_tries):
+                if time.time() - t0 > max_seconds:
+                    break
                 filled, n = solve_suguru(
                     candidate,
                     givens=np.zeros((rows, cols), dtype=np.int32),
@@ -655,6 +660,8 @@ def _(Suguru, generate_regions, np, solve_suguru, time):
         indices = list(range(rows * cols))
         rng.shuffle(indices)
         for i in indices:
+            if time.time() - t0 > max_seconds:
+                break
             if int((givens != 0).sum()) <= target_clues:
                 break
             r, c = divmod(i, cols)
@@ -684,12 +691,27 @@ def _(cols, generate_puzzle, is_script_mode, max_room, new_button, rows, seed_in
     _clicks = new_button.value
     seed = int(seed_in.value) + (0 if is_script_mode else int(_clicks))
 
+    # Script mode should be quick and deterministic for `uv run`.
+    if is_script_mode:
+        rows_eff = min(rows, 5)
+        cols_eff = min(cols, 5)
+        max_room_eff = min(max_room, 4)
+        target_clues_eff = min(target_clues, (rows_eff * cols_eff) // 2)
+        max_seconds = 2.5
+    else:
+        rows_eff = rows
+        cols_eff = cols
+        max_room_eff = max_room
+        target_clues_eff = target_clues
+        max_seconds = 8.0
+
     problem, givens, solution = generate_puzzle(
-        rows=rows,
-        cols=cols,
-        max_room=max_room,
-        target_clues=target_clues,
+        rows=rows_eff,
+        cols=cols_eff,
+        max_room=max_room_eff,
+        target_clues=target_clues_eff,
         seed=seed,
+        max_seconds=max_seconds,
     )
     return givens, problem, seed, solution
 
