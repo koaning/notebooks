@@ -885,7 +885,7 @@ def _(
         show_candidate_counts=bool(show_candidate_counts.value),
         show_candidates=bool(show_candidates.value),
     )
-    mo.ui.plot(fig)
+    fig
     return candidate_sets, grid_to_show
 
 
