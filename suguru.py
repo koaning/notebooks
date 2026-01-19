@@ -436,20 +436,24 @@ def _(cols, generate_puzzle, is_script_mode, max_room, new_button, rows, seed_in
 
 @app.cell
 def _(np, problem, solve_suguru):
-    solved, nsol = solve_suguru(problem, givens=np.zeros((problem.rows, problem.cols), dtype=np.int32), count_solutions=True)
+    solved_empty, nsol_empty = solve_suguru(
+        problem,
+        givens=np.zeros((problem.rows, problem.cols), dtype=np.int32),
+        count_solutions=True,
+    )
     # sanity: solver can fill the empty puzzle (at least one solution exists)
-    return nsol, solved
+    return nsol_empty, solved_empty
 
 
 @app.cell(hide_code=True)
-def _(givens, mo, nsol, problem, seed, solution):
+def _(givens, mo, nsol_empty, problem, seed, solution):
     mo.md(
         f"""
 **Seed**: `{seed}`  
 **Grid**: {problem.rows}×{problem.cols}  
 **Rooms**: {len(problem.region_ids())}  
 **Clues**: {int((givens != 0).sum())}  
-**(Sanity) solutions for empty grid**: {nsol} (we only need ≥1)
+**(Sanity) solutions for empty grid**: {nsol_empty} (we only need ≥1)
 """
     )
     return
@@ -547,15 +551,15 @@ The generator uses the solver twice:
 @app.cell
 def _(givens, np, problem, solve_suguru):
     # Verify the generated puzzle has a unique solution.
-    _sol, nsol = solve_suguru(problem, givens, count_solutions=True, solution_limit=2)
-    nsol
-    return (nsol,)
+    _sol, nsol_puzzle = solve_suguru(problem, givens, count_solutions=True, solution_limit=2)
+    nsol_puzzle
+    return (nsol_puzzle,)
 
 
 @app.cell(hide_code=True)
-def _(is_script_mode, mo, nsol):
+def _(is_script_mode, mo, nsol_puzzle):
     if is_script_mode:
-        mo.md(f"Script-mode check: **puzzle solution count** = `{nsol}` (should be 1).")
+        mo.md(f"Script-mode check: **puzzle solution count** = `{nsol_puzzle}` (should be 1).")
     return
 
 
