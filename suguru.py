@@ -3,13 +3,16 @@
 #     "marimo",
 #     "pydantic-ai==1.44.0",
 #     "mohtml==0.1.11",
+#     "anywidget==0.9.21",
+#     "traitlets",
+#     "pandas==2.3.3",
 # ]
 # ///
 
 import marimo
 
 __generated_with = "0.19.4"
-app = marimo.App(width="columns", sql_output="polars")
+app = marimo.App(sql_output="polars")
 
 
 @app.cell
@@ -115,6 +118,32 @@ def _():
 
             return possible
 
+        def find_forced_moves(self) -> list[tuple[int, int, int]]:
+            """Find cells that have only one possible value (forced moves)"""
+            forced = []
+            for y in range(self.height):
+                for x in range(self.width):
+                    if self.board[y][x] is None:
+                        possible = self.possible_values(x, y)
+                        if len(possible) == 1:
+                            forced.append((x, y, next(iter(possible))))
+            return forced
+
+        def propagate_constraints(self) -> bool:
+            """Apply constraint propagation: fill in all forced moves.
+            Returns True if any moves were made."""
+            total_moves = 0
+            made_progress = True
+            while made_progress:
+                made_progress = False
+                forced = self.find_forced_moves()
+                if forced:
+                    for x, y, value in forced:
+                        self.make_move(x, y, value)
+                        total_moves += 1
+                        made_progress = True
+            return total_moves > 0
+
         @property
         def empty_coordinates(self) -> list[tuple[int, int]]:
             empty = []
@@ -184,15 +213,211 @@ def _():
                 table(*rows, style="border-collapse: collapse; border: 2px solid black;"),
                 style="font-family: monospace; display: inline-block;",
             )
-    return Assignment, Suguru
+    return Suguru, dataclass
 
 
 @app.cell
-def _(Suguru):
+def _(Suguru, dataclass):
     import random
+    import pandas as pd
 
 
-    def solve(board: Suguru):
+    @dataclass
+    class SolverStats:
+        recursive_calls: int = 0
+
+        def reset(self):
+            self.recursive_calls = 0
+
+
+    def has_impossible_cell(board: Suguru) -> bool:
+        for x, y in board.empty_coordinates:
+            if len(board.possible_values(x, y)) == 0:
+                return True
+        return False
+
+
+    class Solver:
+        def __init__(self, board: Suguru):
+            self.initial_board = board.copy()
+            self.stats = SolverStats()
+            self.history = []
+            self._step = 0
+
+        def _record_history(self, board: Suguru, action: str, **kwargs):
+            """Record a step in history"""
+            self.history.append({
+                'step': self._step,
+                'action': action,
+                'recursive_calls': self.stats.recursive_calls,
+                'empty_cells': len(board.empty_coordinates),
+                'cells_filled': len(self.initial_board.empty_coordinates) - len(board.empty_coordinates),
+                **kwargs
+            })
+            self._step += 1
+
+        @property
+        def total_steps(self) -> int:
+            """Number of cells filled"""
+            total = 0
+            for h in self.history:
+                action = h.get('action')
+                if action == 'fill':
+                    total += 1
+                elif action == 'constraint_prop':
+                    # Constraint prop fills multiple cells at once
+                    total += h.get('forced_count', 0)
+            return total
+
+        @property
+        def history_df(self):
+            """History as a DataFrame"""
+            if not self.history:
+                return pd.DataFrame()
+            return pd.DataFrame(self.history)
+
+        def board_states(self):
+            """Generator yielding board states - to be implemented by subclasses"""
+            raise NotImplementedError
+
+
+    class BasicSolver(Solver):
+        def board_states(self):
+            return self._solve(self.initial_board)
+
+        def _solve(self, board: Suguru):
+            self.stats.recursive_calls += 1
+
+            if board.is_solved():
+                self._record_history(board, 'solved')
+                yield board
+                return
+
+            empty = board.empty_coordinates
+            if not empty:
+                return
+
+            x, y = min(
+                empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
+            )
+            possible = board.possible_values(x, y)
+
+            for value in possible:
+                new_board = board.copy()
+                new_board.make_move(x, y, value)
+                self._record_history(new_board, 'fill', cell=(x, y), value=value)
+
+                yield new_board
+
+                for result in self._solve(new_board):
+                    yield result
+                    if result.is_solved():
+                        return
+
+
+    class SmartSolver(Solver):
+        def board_states(self):
+            return self._solve(self.initial_board)
+
+        def _solve(self, board: Suguru):
+            self.stats.recursive_calls += 1
+
+            if board.is_solved():
+                self._record_history(board, 'solved')
+                yield board
+                return
+
+            empty = board.empty_coordinates
+            if not empty:
+                return
+
+            x, y = min(
+                empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
+            )
+            possible = board.possible_values(x, y)
+
+            for value in sorted(possible):
+                new_board = board.copy()
+                new_board.make_move(x, y, value)
+
+                if has_impossible_cell(new_board):
+                    self._record_history(new_board, 'pruned', cell=(x, y), value=value)
+                    continue
+
+                self._record_history(new_board, 'fill', cell=(x, y), value=value)
+                yield new_board
+
+                for result in self._solve(new_board):
+                    yield result
+                    if result.is_solved():
+                        return
+
+
+    class ConstraintPropSolver(Solver):
+        def board_states(self):
+            return self._solve(self.initial_board)
+
+        def _solve(self, board: Suguru):
+            self.stats.recursive_calls += 1
+
+            if board.is_solved():
+                self._record_history(board, 'solved')
+                yield board
+                return
+
+            # Handle constraint propagation
+            current_board = board.copy()
+            made_progress = True
+            while made_progress:
+                made_progress = False
+                forced = current_board.find_forced_moves()
+                if forced:
+                    # Make all forced moves at once
+                    for x, y, value in forced:
+                        current_board.make_move(x, y, value)
+                        made_progress = True
+                    self._record_history(current_board, 'constraint_prop', forced_count=len(forced))
+                    yield current_board.copy()
+
+                    if current_board.is_solved():
+                        self._record_history(current_board, 'solved')
+                        yield current_board
+                        return
+
+            # No more forced moves, proceed with normal backtracking
+            empty = current_board.empty_coordinates
+            if not empty:
+                return
+
+            x, y = min(
+                empty, key=lambda pos: (len(current_board.possible_values(*pos)), current_board.n_neighbors(*pos))
+            )
+            possible = current_board.possible_values(x, y)
+
+            for value in sorted(possible):
+                test_board = current_board.copy()
+                test_board.make_move(x, y, value)
+
+                if has_impossible_cell(test_board):
+                    self._record_history(test_board, 'pruned', cell=(x, y), value=value)
+                    continue
+
+                self._record_history(test_board, 'fill', cell=(x, y), value=value)
+                yield test_board
+
+                for result in self._solve(test_board):
+                    yield result
+                    if result.is_solved():
+                        return
+
+
+    # Keep old function-based API for backward compatibility
+    def solve(board: Suguru, stats: SolverStats = None):
+        if stats is None:
+            stats = SolverStats()
+
+        stats.recursive_calls += 1
+
         if board.is_solved():
             yield board
             return
@@ -209,15 +434,21 @@ def _(Suguru):
         for value in possible:
             new_board = board.copy()
             new_board.make_move(x, y, value)
+
             yield new_board
 
-            for result in solve(new_board):
+            for result in solve(new_board, stats):
                 yield result
                 if result.is_solved():
                     return
 
 
-    def solve_smart(board: Suguru):
+    def solve_smart(board: Suguru, stats: SolverStats = None):
+        if stats is None:
+            stats = SolverStats()
+
+        stats.recursive_calls += 1
+
         if board.is_solved():
             yield board
             return
@@ -235,22 +466,68 @@ def _(Suguru):
             new_board = board.copy()
             new_board.make_move(x, y, value)
 
-            if _has_impossible_cell(new_board):
+            if has_impossible_cell(new_board):
                 continue
 
             yield new_board
 
-            for result in solve_smart(new_board):
+            for result in solve_smart(new_board, stats):
                 yield result
                 if result.is_solved():
                     return
 
 
-    def _has_impossible_cell(board: Suguru) -> bool:
-        for x, y in board.empty_coordinates:
-            if len(board.possible_values(x, y)) == 0:
-                return True
-        return False
+    def solve_constraint_prop(board: Suguru, stats: SolverStats = None):
+        """Solver with constraint propagation - handles forced moves before backtracking"""
+        if stats is None:
+            stats = SolverStats()
+
+        stats.recursive_calls += 1
+
+        if board.is_solved():
+            yield board
+            return
+
+        # Handle all forced moves in a loop (like propagate_constraints, but solver makes the moves)
+        current_board = board.copy()
+        made_progress = True
+        while made_progress:
+            made_progress = False
+            forced = current_board.find_forced_moves()
+            if forced:
+                # Make all forced moves at once
+                for x, y, value in forced:
+                    current_board.make_move(x, y, value)
+                    made_progress = True
+                yield current_board.copy()
+
+                if current_board.is_solved():
+                    yield current_board
+                    return
+
+        # No more forced moves, proceed with normal backtracking
+        empty = current_board.empty_coordinates
+        if not empty:
+            return
+
+        x, y = min(
+            empty, key=lambda pos: (len(current_board.possible_values(*pos)), current_board.n_neighbors(*pos))
+        )
+        possible = current_board.possible_values(x, y)
+
+        for value in sorted(possible):
+            test_board = current_board.copy()
+            test_board.make_move(x, y, value)
+
+            if has_impossible_cell(test_board):
+                continue
+
+            yield test_board
+
+            for result in solve_constraint_prop(test_board, stats):
+                yield result
+                if result.is_solved():
+                    return
 
 
     def generate_random_shapes(width: int, height: int) -> list[list[int]]:
@@ -388,50 +665,110 @@ def _(Suguru):
         raise ValueError(
             f"Could not generate a solved board after {max_attempts} attempts - shapes may be invalid"
         )
-    return generate_random_shapes, solve
+    return BasicSolver, ConstraintPropSolver, SmartSolver, pd
 
 
 @app.cell
-def _(Suguru, generate_random_shapes):
-    Suguru(shapes=generate_random_shapes(5, 5))
+def _():
+    from pathlib import Path
+    from suguru_widget.suguru_widget import SuguruGeneratorWidget
+    return (SuguruGeneratorWidget,)
+
+
+@app.cell
+def _(SuguruGeneratorWidget, mo):
+    generator_widget = SuguruGeneratorWidget(width=5, height=5)
+    generator_view = mo.ui.anywidget(generator_widget)
+    generator_view
+    return (generator_widget,)
+
+
+@app.cell
+def _(Suguru, generator_widget):
+    # Use shapes from widget to create board
+    widget_shapes = generator_widget.shapes
+
+    board = Suguru(numbers=[], shapes=widget_shapes)
+    return (board,)
+
+
+@app.cell
+def _(board):
+    board
     return
 
 
 @app.cell
-def _(Suguru, numbers, shapes, solve):
-    out = [Suguru(numbers=numbers, shapes=shapes)] + list(
-        solve(Suguru(numbers=numbers, shapes=shapes))
-    )
-    [len(_.empty_coordinates) for _ in out]
+def _(BasicSolver, ConstraintPropSolver, SmartSolver, board, pd):
+    # Compare solvers with clean class-based API
+    solver_basic = BasicSolver(board)
+    solver_smart = SmartSolver(board)
+    solver_cp = ConstraintPropSolver(board)
+
+    results_basic = list(solver_basic.board_states())
+    results_smart = list(solver_smart.board_states())
+    results_cp = list(solver_cp.board_states())
+
+    # Get final states
+    final_basic = results_basic[-1] if results_basic else None
+    final_smart = results_smart[-1] if results_smart else None
+    final_cp = results_cp[-1] if results_cp else None
+
+    # Create comparison table
+    comparison_data = []
+    for name, solver, final_state in [
+        ("Basic", solver_basic, final_basic),
+        ("Smart", solver_smart, final_smart),
+        ("Constraint Prop", solver_cp, final_cp),
+    ]:
+        is_solved = final_state.is_solved() if final_state else False
+        empty_cells = len(final_state.empty_coordinates) if final_state else len(board.empty_coordinates)
+        comparison_data.append({
+            "Solver": name,
+            "Solved": "✓" if is_solved else "✗",
+            "Recursive Calls": solver.stats.recursive_calls,
+            "Total Steps": solver.total_steps,
+            "Empty Cells": empty_cells,
+            "Cells Filled": len(board.empty_coordinates) - empty_cells,
+        })
+
+    comparison_df = pd.DataFrame(comparison_data)
+    comparison_df
+    return (solver_smart,)
+
+
+@app.cell
+def _(solver_smart):
+    # Show history DataFrame for constraint prop solver
+    solver_smart.history_df
     return
 
 
 @app.cell
-def _(Assignment, Suguru, solve):
-    numbers = [
-        Assignment(0, 0, 1),
-        Assignment(1, 0, 2),
-        Assignment(3, 0, 4),
-    ]
-
-    shapes = [
-        [1, 1, 2, 2],
-        [1, 1, 2, 2],
-        [3, 3, 4, 4],
-        [3, 3, 4, 4],
-    ]
-
-    [Suguru(numbers=numbers, shapes=shapes)] + list(solve(Suguru(numbers=numbers, shapes=shapes)))
-    return numbers, shapes
+def _(ConstraintPropSolver, board):
+    _solver_cp = ConstraintPropSolver(board)
+    _results_cp = list(_solver_cp.board_states())
+    _solution_cp = _results_cp[-1] if _results_cp else None
+    _solution_cp, _solution_cp.is_solved() if _solution_cp else False
+    return
 
 
 @app.cell
-def _(Suguru, numbers, shapes, solve):
-    for _ in [Suguru(numbers=numbers, shapes=shapes)] + list(
-        solve(Suguru(numbers=numbers, shapes=shapes))
-    ):
-        print(_)
-        print()
+def _(BasicSolver, board):
+    _solver_basic = BasicSolver(board)
+    _results_basic = list(_solver_basic.board_states())
+    print(f"Total states explored: {len(_results_basic)}")
+    print(f"Recursive calls: {_solver_basic.stats.recursive_calls}")
+    print(f"Total steps (cells filled): {_solver_basic.total_steps}")
+    _solution_basic = _results_basic[-1] if _results_basic else None
+    if _solution_basic:
+        print(f"Is solved: {_solution_basic.is_solved()}")
+        print(f"Empty cells: {len(_solution_basic.empty_coordinates)}")
+        print(_solution_basic)
+    else:
+        print("No results - solver found no valid paths")
+
+    _solution_basic
     return
 
 
