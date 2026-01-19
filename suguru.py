@@ -42,9 +42,10 @@ def _():
 
     import numpy as np
     import matplotlib.pyplot as plt
+    from matplotlib import patches
     import marimo as mo
 
-    return Iterable, dataclass, mo, np, plt, time
+    return Iterable, dataclass, mo, np, patches, plt, time
 
 
 @app.cell(hide_code=True)
@@ -70,11 +71,18 @@ def _(mo):
     seed_in = mo.ui.number(value=0, start=0, stop=1_000_000, step=1, label="Seed")
     new_button = mo.ui.button(label="🎲 Generate new puzzle")
     show_solution = mo.ui.switch(value=False, label="Show solution")
+    show_regions = mo.ui.switch(value=False, label="Show region ids")
+    show_candidate_counts = mo.ui.switch(value=True, label="Heatmap: candidate counts")
+    show_candidates = mo.ui.switch(value=False, label="Overlay: candidates")
+    trace_toggle = mo.ui.switch(value=False, label="Compute solver trace (slower)")
+    trace_limit = mo.ui.slider(start=0, stop=400, step=10, value=80, label="Trace steps to show")
 
     mo.vstack(
         [
             mo.hstack([rows_in, cols_in, max_room_in]),
-            mo.hstack([clues_in, seed_in, show_solution]),
+            mo.hstack([clues_in, seed_in, show_solution, show_regions]),
+            mo.hstack([show_candidate_counts, show_candidates]),
+            mo.hstack([trace_toggle, trace_limit]),
             new_button,
         ],
         gap="0.75rem",
@@ -86,7 +94,12 @@ def _(mo):
         new_button,
         rows_in,
         seed_in,
+        show_candidate_counts,
+        show_candidates,
+        show_regions,
         show_solution,
+        trace_limit,
+        trace_toggle,
     )
 
 
@@ -184,10 +197,14 @@ def _(Iterable, dataclass, np):
 
         while unassigned:
             start = tuple(next(iter(unassigned)))
-            # pick a size; smaller rooms are more common, but never exceed remaining cells
+            # Pick a size. Prefer size >= 2 to avoid lots of singletons, but
+            # never exceed remaining cells.
             remaining = len(unassigned)
-            size = int(rng.integers(1, max_room + 1))
-            size = min(size, remaining)
+            if remaining == 1:
+                size = 1
+            else:
+                size = int(rng.integers(2, max_room + 1))
+                size = min(size, remaining)
 
             region_cells = [start]
             unassigned.remove(start)
@@ -210,6 +227,41 @@ def _(Iterable, dataclass, np):
             for r, c in region_cells:
                 regions[r, c] = rid
             rid += 1
+
+        # Post-process: merge singleton regions into a 4-neighbor region if possible.
+        # This reduces solver dead-ends and makes puzzles more "Suguru-like".
+        changed = True
+        while changed:
+            changed = False
+            # compute current sizes
+            unique, counts = np.unique(regions, return_counts=True)
+            sizes = {int(u): int(c) for u, c in zip(unique, counts)}
+            singletons = [rid for rid, sz in sizes.items() if sz == 1]
+            if not singletons:
+                break
+
+            for srid in singletons:
+                (r0, c0) = tuple(map(int, np.argwhere(regions == srid)[0]))
+                neighbor_rids = []
+                for rr, cc in neighbors4_rc(r0, c0):
+                    nrid = int(regions[rr, cc])
+                    if nrid != srid:
+                        neighbor_rids.append(nrid)
+                if not neighbor_rids:
+                    continue
+
+                # Prefer merging into a neighbor that isn't already at max_room.
+                rng.shuffle(neighbor_rids)
+                target = None
+                for nrid in neighbor_rids:
+                    if sizes.get(nrid, 0) < max_room:
+                        target = nrid
+                        break
+                if target is None:
+                    target = neighbor_rids[0]
+
+                regions[r0, c0] = int(target)
+                changed = True
 
         return regions
 
@@ -333,6 +385,214 @@ def _(Suguru, np):
         return grid, n_solutions if count_solutions else 1
 
     return solve_suguru
+
+
+@app.cell
+def _(Suguru, dataclass, np, time):
+    @dataclass(frozen=True)
+    class SolverStats:
+        nodes: int
+        backtracks: int
+        max_depth: int
+        elapsed_s: float
+
+    def compute_candidates(problem: Suguru, grid: np.ndarray) -> list[set[int]]:
+        """Return candidate set per cell under the current grid (0 = empty)."""
+        # Convert to linear assignment
+        assignment = [0] * problem.n_cells
+        for r in range(problem.rows):
+            for c in range(problem.cols):
+                assignment[problem.idx(r, c)] = int(grid[r, c])
+
+        sizes = problem.region_sizes()
+        domains: list[set[int]] = []
+        for i in range(problem.n_cells):
+            r, c = problem.rc(i)
+            rid = int(problem.regions[r, c])
+            k = sizes[rid]
+            domains.append(set(range(1, k + 1)))
+
+        def consistent(i: int, v: int) -> bool:
+            # room uniqueness
+            r, c = problem.rc(i)
+            rid = int(problem.regions[r, c])
+            for j in range(problem.n_cells):
+                if assignment[j] == 0 or j == i:
+                    continue
+                rr, cc = problem.rc(j)
+                if int(problem.regions[rr, cc]) == rid and assignment[j] == v:
+                    return False
+            # adjacency uniqueness
+            for j in problem.neighbors8(i):
+                if assignment[j] == v:
+                    return False
+            return True
+
+        out: list[set[int]] = []
+        for i in range(problem.n_cells):
+            if assignment[i] != 0:
+                out.append({assignment[i]})
+                continue
+            out.append({v for v in domains[i] if consistent(i, v)})
+        return out
+
+    def suggest_next_move(problem: Suguru, grid: np.ndarray) -> dict:
+        """
+        Return MRV suggestion: the unfilled cell with smallest candidate set.
+        """
+        cands = compute_candidates(problem, grid)
+        best_i = None
+        best = None
+        for i in range(problem.n_cells):
+            r, c = problem.rc(i)
+            if int(grid[r, c]) != 0:
+                continue
+            s = cands[i]
+            if best is None or len(s) < len(best):
+                best = s
+                best_i = i
+                if len(best) <= 1:
+                    break
+        if best_i is None or best is None:
+            return {"status": "solved", "cell": None, "candidates": None}
+        r, c = problem.rc(best_i)
+        status = "forced" if len(best) == 1 else "choice"
+        return {
+            "status": status,
+            "cell": {"i": int(best_i), "r": int(r), "c": int(c)},
+            "candidates": sorted(int(x) for x in best),
+        }
+
+    def solve_suguru_detailed(
+        problem: Suguru,
+        givens: np.ndarray,
+        *,
+        rng: np.random.Generator | None = None,
+        solution_limit: int = 1,
+        trace_limit: int = 0,
+    ) -> tuple[np.ndarray | None, int, SolverStats, list[dict]]:
+        """
+        Solve with backtracking+MRV, returning stats and an optional trace.
+
+        Trace entries are dicts describing MRV decisions and value trials.
+        """
+        if rng is None:
+            rng = np.random.default_rng(0)
+
+        t0 = time.time()
+        sizes = problem.region_sizes()
+        assignment = [0] * problem.n_cells
+        domains: list[list[int]] = []
+        for i in range(problem.n_cells):
+            r, c = problem.rc(i)
+            rid = int(problem.regions[r, c])
+            k = sizes[rid]
+            domains.append(list(range(1, k + 1)))
+
+        def consistent(i: int, v: int) -> bool:
+            r, c = problem.rc(i)
+            rid = int(problem.regions[r, c])
+            for j in range(problem.n_cells):
+                if assignment[j] == 0 or j == i:
+                    continue
+                rr, cc = problem.rc(j)
+                if int(problem.regions[rr, cc]) == rid and assignment[j] == v:
+                    return False
+            for j in problem.neighbors8(i):
+                if assignment[j] == v:
+                    return False
+            return True
+
+        # apply givens
+        for r in range(problem.rows):
+            for c in range(problem.cols):
+                v = int(givens[r, c])
+                if v == 0:
+                    continue
+                i = problem.idx(r, c)
+                if v not in domains[i] or not consistent(i, v):
+                    stats = SolverStats(nodes=0, backtracks=0, max_depth=0, elapsed_s=time.time() - t0)
+                    return None, 0, stats, []
+                assignment[i] = v
+
+        nodes = 0
+        backtracks = 0
+        max_depth = 0
+        trace: list[dict] = []
+        n_solutions = 0
+        found_solution: list[int] | None = None
+
+        def mrv_cell() -> tuple[int | None, list[int] | None]:
+            best_i = None
+            best_vals = None
+            best_len = 10**9
+            for i in range(problem.n_cells):
+                if assignment[i] != 0:
+                    continue
+                vals = [v for v in domains[i] if consistent(i, v)]
+                if len(vals) == 0:
+                    return -1, None
+                if len(vals) < best_len:
+                    best_len = len(vals)
+                    best_i = i
+                    best_vals = vals
+                    if best_len <= 1:
+                        break
+            return best_i, best_vals
+
+        def record(entry: dict) -> None:
+            if trace_limit <= 0:
+                return
+            if len(trace) >= trace_limit:
+                return
+            trace.append(entry)
+
+        def backtrack(depth: int) -> None:
+            nonlocal nodes, backtracks, max_depth, n_solutions, found_solution
+            if n_solutions >= solution_limit:
+                return
+            max_depth = max(max_depth, depth)
+
+            i, vals = mrv_cell()
+            if i is None:
+                n_solutions += 1
+                if found_solution is None:
+                    found_solution = assignment.copy()
+                return
+            if i == -1 or vals is None:
+                backtracks += 1
+                return
+
+            r, c = problem.rc(i)
+            vals = vals.copy()
+            rng.shuffle(vals)
+            record({"type": "mrv", "depth": depth, "cell": {"i": int(i), "r": int(r), "c": int(c)}, "candidates": sorted(vals)})
+            for v in vals:
+                if not consistent(i, v):
+                    continue
+                assignment[i] = v
+                nodes += 1
+                record({"type": "try", "depth": depth, "cell_i": int(i), "value": int(v)})
+                backtrack(depth + 1)
+                if n_solutions >= solution_limit:
+                    return
+                assignment[i] = 0
+            backtracks += 1
+
+        backtrack(0)
+
+        elapsed = time.time() - t0
+        stats = SolverStats(nodes=nodes, backtracks=backtracks, max_depth=max_depth, elapsed_s=elapsed)
+        if found_solution is None:
+            return None, 0, stats, trace
+
+        grid = np.zeros((problem.rows, problem.cols), dtype=np.int32)
+        for i, v in enumerate(found_solution):
+            r, c = problem.rc(i)
+            grid[r, c] = int(v)
+        return grid, n_solutions, stats, trace
+
+    return SolverStats, compute_candidates, solve_suguru_detailed, suggest_next_move
 
 
 @app.cell
@@ -460,15 +720,38 @@ def _(givens, mo, nsol_empty, problem, seed, solution):
 
 
 @app.cell
-def _(np, plt, problem):
-    def render(problem: Suguru, grid: np.ndarray, *, title: str):
-        fig, ax = plt.subplots(figsize=(0.8 * problem.cols + 1, 0.8 * problem.rows + 1))
+def _(np, patches, plt, problem):
+    def render(
+        problem,
+        grid: np.ndarray,
+        *,
+        title: str,
+        regions_overlay: np.ndarray | None = None,
+        candidate_sets: list[set[int]] | None = None,
+        show_candidate_counts: bool = False,
+        show_candidates: bool = False,
+    ):
+        fig, ax = plt.subplots(figsize=(0.85 * problem.cols + 1, 0.85 * problem.rows + 1))
         ax.set_title(title)
         ax.set_xlim(0, problem.cols)
         ax.set_ylim(0, problem.rows)
         ax.set_aspect("equal")
         ax.invert_yaxis()
         ax.axis("off")
+
+        # Optional: candidate-count heatmap background
+        if show_candidate_counts and candidate_sets is not None:
+            counts = np.array([len(s) for s in candidate_sets], dtype=np.int32).reshape(problem.rows, problem.cols)
+            maxc = int(counts.max()) if counts.size else 1
+            for r in range(problem.rows):
+                for c in range(problem.cols):
+                    if int(grid[r, c]) != 0:
+                        continue
+                    v = int(counts[r, c])
+                    # darker => fewer candidates
+                    t = 0.0 if maxc <= 1 else 1.0 - (v - 1) / (maxc - 1)
+                    color = (1.0, 0.95 - 0.35 * t, 0.95 - 0.45 * t, 0.25 + 0.35 * t)
+                    ax.add_patch(patches.Rectangle((c, r), 1, 1, facecolor=color, edgecolor="none"))
 
         # light cell grid
         for r in range(problem.rows + 1):
@@ -494,33 +777,182 @@ def _(np, plt, problem):
                 if c == problem.cols - 1 or int(regions[r, c + 1]) != rid:
                     ax.plot([c + 1, c + 1], [r, r + 1], color="#111", lw=2)
 
+        # Optional: region-id overlay (useful for debugging generation)
+        if regions_overlay is not None:
+            for r in range(problem.rows):
+                for c in range(problem.cols):
+                    ax.text(
+                        c + 0.10,
+                        r + 0.18,
+                        str(int(regions_overlay[r, c])),
+                        ha="left",
+                        va="center",
+                        fontsize=7,
+                        color="#666",
+                    )
+
         # numbers
         for r in range(problem.rows):
             for c in range(problem.cols):
                 v = int(grid[r, c])
-                if v == 0:
-                    continue
-                ax.text(
-                    c + 0.5,
-                    r + 0.55,
-                    str(v),
-                    ha="center",
-                    va="center",
-                    fontsize=14,
-                    color="#111",
-                )
+                if v != 0:
+                    ax.text(
+                        c + 0.5,
+                        r + 0.55,
+                        str(v),
+                        ha="center",
+                        va="center",
+                        fontsize=14,
+                        color="#111",
+                    )
+                elif show_candidates and candidate_sets is not None:
+                    i = r * problem.cols + c
+                    cand = sorted(int(x) for x in candidate_sets[i])
+                    s = "".join(str(x) for x in cand)
+                    ax.text(
+                        c + 0.5,
+                        r + 0.58,
+                        s,
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color="#444",
+                    )
         return fig
 
     return (render,)
 
 
 @app.cell
-def _(givens, mo, problem, render, show_solution, solution):
-    if show_solution.value:
-        fig = render(problem, solution, title="Solution (full grid)")
-    else:
-        fig = render(problem, givens, title="Puzzle (givens only)")
+def _(
+    compute_candidates,
+    givens,
+    mo,
+    problem,
+    render,
+    show_candidate_counts,
+    show_candidates,
+    show_regions,
+    show_solution,
+    solution,
+):
+    grid_to_show = solution if show_solution.value else givens
+    candidate_sets = None
+    if not show_solution.value and (show_candidate_counts.value or show_candidates.value):
+        candidate_sets = compute_candidates(problem, givens)
+
+    regions_overlay = problem.regions if show_regions.value else None
+    title = "Solution (full grid)" if show_solution.value else "Puzzle (givens only)"
+    fig = render(
+        problem,
+        grid_to_show,
+        title=title,
+        regions_overlay=regions_overlay,
+        candidate_sets=candidate_sets,
+        show_candidate_counts=bool(show_candidate_counts.value),
+        show_candidates=bool(show_candidates.value),
+    )
     mo.ui.plot(fig)
+    return candidate_sets, grid_to_show
+
+
+@app.cell(hide_code=True)
+def _(givens, mo, problem):
+    mo.md(
+        f"""
+### Board state utilities
+
+**Puzzle (0 = empty):**
+
+```
+{problem.pretty(givens)}
+```
+
+**Regions (region id per cell):**
+
+```
+{problem.regions}
+```
+"""
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(candidate_sets, mo, suggest_next_move):
+    if candidate_sets is None:
+        mo.md("Candidate utilities are available when viewing the puzzle (not the full solution).")
+        return
+    # When candidates are computed, show an MRV hint.
+    return
+
+
+@app.cell
+def _(givens, problem, suggest_next_move):
+    next_move = suggest_next_move(problem, givens)
+    return (next_move,)
+
+
+@app.cell(hide_code=True)
+def _(mo, next_move):
+    if next_move["status"] == "solved":
+        mo.md("**Next move (MRV)**: puzzle is already solved.")
+        return
+    cell = next_move["cell"]
+    candidates = next_move["candidates"]
+    if next_move["status"] == "forced":
+        mo.md(f"**Next move (MRV)**: forced cell at (r={cell['r']}, c={cell['c']}) = `{candidates[0]}`.")
+    else:
+        mo.md(
+            f"**Next move (MRV)**: choose cell at (r={cell['r']}, c={cell['c']}); candidates = `{candidates}`."
+        )
+    return
+
+
+@app.cell
+def _(
+    np,
+    problem,
+    seed,
+    solve_suguru_detailed,
+    trace_limit,
+    trace_toggle,
+    givens,
+):
+    rng = np.random.default_rng(int(seed))
+    trace_n = int(trace_limit.value) if trace_toggle.value else 0
+    solved_from_givens, nsol_from_givens, stats, trace = solve_suguru_detailed(
+        problem,
+        givens,
+        rng=rng,
+        solution_limit=1,
+        trace_limit=trace_n,
+    )
+    return nsol_from_givens, solved_from_givens, stats, trace
+
+
+@app.cell(hide_code=True)
+def _(mo, nsol_from_givens, stats, trace, trace_toggle):
+    mo.md(
+        f"""
+### Solver diagnostics
+
+- **Nodes tried**: {stats.nodes}
+- **Backtracks**: {stats.backtracks}
+- **Max recursion depth**: {stats.max_depth}
+- **Elapsed**: {stats.elapsed_s:.3f}s
+"""
+    )
+    if trace_toggle.value and trace:
+        mo.md(
+            f"""
+**Trace (first {len(trace)} events)** — `type="mrv"` shows the chosen cell + candidate list; `type="try"` shows attempted values.
+
+```
+{trace[: min(len(trace), 60)]}
+```
+"""
+        )
     return
 
 
