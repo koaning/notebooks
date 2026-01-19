@@ -879,11 +879,11 @@ def _(givens, mo, problem):
 
 
 @app.cell(hide_code=True)
-def _(candidate_sets, mo, suggest_next_move):
+def _(candidate_sets, mo):
     if candidate_sets is None:
         mo.md("Candidate utilities are available when viewing the puzzle (not the full solution).")
-        return
-    # When candidates are computed, show an MRV hint.
+    else:
+        mo.md("Candidates are computed for the current puzzle state (use the toggles above to visualize them).")
     return
 
 
