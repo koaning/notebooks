@@ -897,15 +897,17 @@ def _(givens, problem, suggest_next_move):
 def _(mo, next_move):
     if next_move["status"] == "solved":
         mo.md("**Next move (MRV)**: puzzle is already solved.")
-        return
-    cell = next_move["cell"]
-    candidates = next_move["candidates"]
-    if next_move["status"] == "forced":
-        mo.md(f"**Next move (MRV)**: forced cell at (r={cell['r']}, c={cell['c']}) = `{candidates[0]}`.")
     else:
-        mo.md(
-            f"**Next move (MRV)**: choose cell at (r={cell['r']}, c={cell['c']}); candidates = `{candidates}`."
-        )
+        cell = next_move["cell"]
+        candidates = next_move["candidates"]
+        if next_move["status"] == "forced":
+            mo.md(
+                f"**Next move (MRV)**: forced cell at (r={cell['r']}, c={cell['c']}) = `{candidates[0]}`."
+            )
+        else:
+            mo.md(
+                f"**Next move (MRV)**: choose cell at (r={cell['r']}, c={cell['c']}); candidates = `{candidates}`."
+            )
     return
 
 
