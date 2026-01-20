@@ -61,9 +61,9 @@
 
 .suguru-grid {
   display: grid;
-  gap: 3px;
-  background: #222;
-  padding: 3px;
+  gap: 2px;
+  background: #ddd;
+  padding: 2px;
   border-radius: 4px;
 }
 
@@ -71,16 +71,15 @@
   width: 40px;
   height: 40px;
   background: #fff;
-  border: 2px solid #666;
+  border: 1px solid #999;
   cursor: crosshair;
-  transition: transform 0.1s, box-shadow 0.1s, border-color 0.1s;
+  transition: transform 0.1s, box-shadow 0.1s;
   user-select: none;
 }
 
 .suguru-cell:hover {
   transform: scale(1.1);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  border-color: #333;
   z-index: 1;
   position: relative;
 }

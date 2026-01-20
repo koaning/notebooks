@@ -6,22 +6,384 @@
 #     "anywidget==0.9.21",
 #     "traitlets",
 #     "pandas==2.3.3",
+#     "pytest==9.0.2",
 # ]
 # ///
 
 import marimo
 
 __generated_with = "0.19.4"
-app = marimo.App(sql_output="polars")
+app = marimo.App(width="columns", sql_output="polars")
 
 
-@app.cell
+@app.cell(column=0)
 def _():
     import marimo as mo
     return (mo,)
 
 
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## Solver
+    """)
+    return
+
+
+@app.cell
+def _(Suguru, dataclass):
+    import random
+    import pandas as pd
+
+
+    @dataclass
+    class SolverStats:
+        recursive_calls: int = 0
+        board_states: list = None
+
+        def __post_init__(self):
+            if self.board_states is None:
+                self.board_states = []
+
+        def reset(self):
+            self.recursive_calls = 0
+            self.board_states = []
+
+
+    def has_impossible_cell(board: Suguru) -> bool:
+        for x, y in board.empty_coordinates:
+            if len(board.possible_values(x, y)) == 0:
+                return True
+        return False
+
+
+    def track_recursive_call(func):
+        """Decorator to track recursive calls and log board states"""
+        def wrapper(self, board: Suguru):
+            self.stats.recursive_calls += 1
+
+            # Check max iterations
+            if self.stats.recursive_calls > self.max_iterations:
+                return
+
+            # Log board state
+            self.stats.board_states.append(board.copy())
+
+            # Call the actual solve method (it's a generator)
+            yield from func(self, board)
+
+        return wrapper
+
+
+    class Solver:
+        def __init__(self, board: Suguru, max_iterations: int = 100000):
+            self.initial_board = board.copy()
+            self.stats = SolverStats()
+            self.max_iterations = max_iterations
+            self._solved = False
+
+        def try_or_undo_move(self, board: Suguru, x: int, y: int, value: int):
+            """Context manager for true backtracking - makes move, undoes on exit if needed"""
+            class MoveContext:
+                def __init__(self, solver, board, x, y, value):
+                    self.solver = solver
+                    self.board = board
+                    self.x = x
+                    self.y = y
+                    self.value = value
+                    self.solution_found = False
+
+                def __enter__(self):
+                    self.board.make_move(self.x, self.y, self.value)
+                    return self
+
+                def __exit__(self, exc_type, exc_val, exc_tb):
+                    if not self.solution_found:
+                        self.board.board[self.y][self.x] = None  # Undo move (backtrack)
+                    return False  # Don't suppress exceptions
+
+            return MoveContext(self, board, x, y, value)
+
+        @property
+        def solved(self) -> bool:
+            """Whether the solver found a solution"""
+            return self._solved
+
+        @property
+        def current_board(self) -> Suguru:
+            """Returns the most recent board state, prioritizing solved boards"""
+            if self.stats.board_states:
+                # If solved, find the last solved board state
+                if self._solved:
+                    for board in reversed(self.stats.board_states):
+                        if board.is_solved():
+                            return board
+                return self.stats.board_states[-1]
+            return self.initial_board.copy()
+
+        def board_states(self):
+            """Generator yielding board states - to be implemented by subclasses"""
+            raise NotImplementedError
+
+
+    class BasicSolver(Solver):
+        def board_states(self):
+            board = self.initial_board.copy()
+            return self._solve(board)
+
+        @track_recursive_call
+        def _solve(self, board: Suguru):
+            if board.is_solved():
+                self._solved = True
+                # Log the solved board state
+                self.stats.board_states.append(board.copy())
+                yield board
+                return
+
+            empty = board.empty_coordinates
+            if not empty:
+                return
+
+            x, y = min(
+                empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
+            )
+            possible = board.possible_values(x, y)
+
+            for value in possible:
+                with self.try_or_undo_move(board, x, y, value) as move:
+                    for result in self._solve(board):
+                        if result.is_solved():
+                            self._solved = True
+                            # Log the solved board state
+                            self.stats.board_states.append(result.copy())
+                            move.solution_found = True
+                        yield result
+                        if result.is_solved():
+                            return
+
+
+    class SmartSolver(Solver):
+        def board_states(self):
+            board = self.initial_board.copy()
+            return self._solve(board)
+
+        @track_recursive_call
+        def _solve(self, board: Suguru):
+            if board.is_solved():
+                self._solved = True
+                # Log the solved board state
+                self.stats.board_states.append(board.copy())
+                yield board
+                return
+
+            empty = board.empty_coordinates
+            if not empty:
+                return
+
+            x, y = min(
+                empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
+            )
+            possible = board.possible_values(x, y)
+
+            for value in sorted(possible):
+                with self.try_or_undo_move(board, x, y, value) as move:
+                    if has_impossible_cell(board):
+                        continue
+
+                    for result in self._solve(board):
+                        if result.is_solved():
+                            self._solved = True
+                            # Log the solved board state
+                            self.stats.board_states.append(result.copy())
+                            move.solution_found = True
+                        yield result
+                        if result.is_solved():
+                            return
+
+
+    class ConstraintPropSolver(Solver):
+        def board_states(self):
+            board = self.initial_board.copy()
+            return self._solve(board)
+
+        @track_recursive_call
+        def _solve(self, board: Suguru):
+            if board.is_solved():
+                self._solved = True
+                # Log the solved board state
+                self.stats.board_states.append(board.copy())
+                yield board
+                return
+
+            # Handle constraint propagation (these are easy to declare wins)
+            made_progress = True
+            while made_progress:
+                made_progress = False
+                forced = board.find_forced_moves()
+                if forced:
+                    # Make forced moves one at a time, checking validity after each
+                    for x, y, value in forced:
+                        board.make_move(x, y, value)
+                        made_progress = True
+
+                        # Check if this move created an invalid state
+                        if has_impossible_cell(board):
+                            # Invalid state reached - this branch is unsolvable
+                            return
+
+                    yield board.copy()
+
+                    if board.is_solved():
+                        self._solved = True
+                        # Log the solved board state
+                        self.stats.board_states.append(board.copy())
+                        yield board
+                        return
+
+            # No more forced moves, proceed with normal backtracking
+            empty = board.empty_coordinates
+            if not empty:
+                return
+
+            x, y = min(
+                empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
+            )
+            possible = board.possible_values(x, y)
+
+            for value in sorted(possible):
+                with self.try_or_undo_move(board, x, y, value) as move:
+                    if has_impossible_cell(board):
+                        continue
+
+                    for result in self._solve(board):
+                        if result.is_solved():
+                            self._solved = True
+                            # Log the solved board state
+                            self.stats.board_states.append(result.copy())
+                            move.solution_found = True
+                        yield result
+                        if result.is_solved():
+                            return
+    return BasicSolver, ConstraintPropSolver, SmartSolver, pd
+
+
 @app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Solver Comparison
+
+    This notebook implements three different backtracking solvers for Suguru puzzles, each with increasing levels of optimization:
+
+    ### BasicSolver
+    The simplest backtracking solver. It:
+    - Selects the cell with the fewest possible values (and most neighbors as tiebreaker)
+    - Tries each possible value in order
+    - Uses true backtracking (undoes moves when a branch fails)
+    - No early pruning - explores all branches until they fail
+
+    ### SmartSolver
+    An optimized version that adds:
+    - **Early pruning**: After making a move, checks if any cell has zero possible values
+    - If an impossible cell is detected, immediately backtracks without exploring further
+    - Values are tried in sorted order for consistency
+    - Significantly reduces the search space by avoiding dead-end branches
+
+    ### ConstraintPropSolver
+    The most advanced solver that adds:
+    - **Constraint propagation**: Before backtracking, finds and fills all "forced moves" (cells with only one possible value)
+    - These forced moves are made automatically and can't be undone (they're logically required)
+    - After propagation, uses the same smart backtracking as SmartSolver
+    - Often solves puzzles with minimal or no backtracking needed
+    - Validates moves during propagation to catch invalid states early
+
+    All solvers use true backtracking with a context manager that automatically undoes moves when a branch doesn't lead to a solution.
+    """)
+    return
+
+
+@app.cell
+def _():
+    from pathlib import Path
+    from suguru_widget.suguru_widget import SuguruGeneratorWidget
+    return (SuguruGeneratorWidget,)
+
+
+@app.cell
+def _(SuguruGeneratorWidget, mo):
+    generator_widget = SuguruGeneratorWidget(width=5, height=5)
+    generator_view = mo.ui.anywidget(generator_widget)
+    generator_view
+    return generator_view, generator_widget
+
+
+@app.cell
+def _(Suguru, generator_view, generator_widget):
+    # Use shapes from widget to create board
+    # Access generator_view to ensure Marimo tracks widget changes
+    # The view must be accessed to trigger reactivity when widget state changes
+    _view_dependency = generator_view
+    # Access shapes through the widget - Marimo tracks this when view is a dependency
+    widget_shapes = generator_widget.shapes
+    # Convert to tuple to create hashable dependency that changes when shapes change
+    _shapes_tuple = tuple(tuple(row) for row in widget_shapes) if widget_shapes else ()
+
+    board = Suguru(numbers=[], shapes=widget_shapes)
+    return (board,)
+
+
+@app.cell
+def _(board):
+    board.to_inputs()
+    return
+
+
+@app.cell
+def _(BasicSolver, ConstraintPropSolver, SmartSolver, board, pd):
+    # Compare solvers with clean class-based API
+    solver_basic = BasicSolver(board)
+    solver_smart = SmartSolver(board)
+    solver_cp = ConstraintPropSolver(board)
+
+    # Run solvers to populate stats
+    list(solver_basic.board_states())
+    list(solver_smart.board_states())
+    list(solver_cp.board_states())
+
+    # Create comparison table
+    comparison_data = []
+    for name, solver in [
+        ("Basic", solver_basic),
+        ("Smart", solver_smart),
+        ("Constraint Prop", solver_cp),
+    ]:
+        status = "✓ Solved" if solver.solved else "✗ Not Solved"
+
+        comparison_data.append({
+            "Solver": name,
+            "Status": status,
+            "Recursive Calls": solver.stats.recursive_calls,
+        })
+
+    comparison_df = pd.DataFrame(comparison_data)
+    comparison_df
+    return solver_basic, solver_cp, solver_smart
+
+
+@app.cell
+def _(mo, solver_basic, solver_cp, solver_smart):
+    mo.hstack([
+        solver_basic.current_board, solver_smart.current_board, solver_cp.current_board
+    ])
+    return
+
+
+@app.cell
+def _(solver_cp):
+    solver_cp.current_board.board
+    return
+
+
+@app.cell(column=1, hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Suguru class
@@ -165,7 +527,30 @@ def _():
             self.board[y][x] = value
 
         def is_solved(self) -> bool:
-            return len(self.empty_coordinates) == 0
+            """Check if board is solved AND valid"""
+            if len(self.empty_coordinates) > 0:
+                return False
+
+            # Validate that all cells contain valid values
+            for y in range(self.height):
+                for x in range(self.width):
+                    value = self.board[y][x]
+                    if value is None:
+                        return False
+                    if not self.is_valid(x, y, value):
+                        return False
+
+            return True
+
+        def to_inputs(self) -> tuple[list[Assignment], list[list[int]]]:
+            """Returns numbers and shapes that can be used to recreate this board"""
+            numbers = []
+            for y in range(self.height):
+                for x in range(self.width):
+                    value = self.board[y][x]
+                    if value is not None:
+                        numbers.append(Assignment(x=x, y=y, value=value))
+            return numbers, self.shapes
 
         def __repr__(self) -> str:
             lines = []
@@ -217,559 +602,35 @@ def _():
 
 
 @app.cell
-def _(Suguru, dataclass):
-    import random
-    import pandas as pd
-
-
-    @dataclass
-    class SolverStats:
-        recursive_calls: int = 0
-
-        def reset(self):
-            self.recursive_calls = 0
-
-
-    def has_impossible_cell(board: Suguru) -> bool:
-        for x, y in board.empty_coordinates:
-            if len(board.possible_values(x, y)) == 0:
-                return True
-        return False
-
-
-    class Solver:
-        def __init__(self, board: Suguru):
-            self.initial_board = board.copy()
-            self.stats = SolverStats()
-            self.history = []
-            self._step = 0
-
-        def _record_history(self, board: Suguru, action: str, **kwargs):
-            """Record a step in history"""
-            self.history.append({
-                'step': self._step,
-                'action': action,
-                'recursive_calls': self.stats.recursive_calls,
-                'empty_cells': len(board.empty_coordinates),
-                'cells_filled': len(self.initial_board.empty_coordinates) - len(board.empty_coordinates),
-                **kwargs
-            })
-            self._step += 1
-
-        @property
-        def total_steps(self) -> int:
-            """Number of cells filled"""
-            total = 0
-            for h in self.history:
-                action = h.get('action')
-                if action == 'fill':
-                    total += 1
-                elif action == 'constraint_prop':
-                    # Constraint prop fills multiple cells at once
-                    total += h.get('forced_count', 0)
-            return total
-
-        @property
-        def history_df(self):
-            """History as a DataFrame"""
-            if not self.history:
-                return pd.DataFrame()
-            return pd.DataFrame(self.history)
-
-        def board_states(self):
-            """Generator yielding board states - to be implemented by subclasses"""
-            raise NotImplementedError
-
-
-    class BasicSolver(Solver):
-        def board_states(self):
-            return self._solve(self.initial_board)
-
-        def _solve(self, board: Suguru):
-            self.stats.recursive_calls += 1
-
-            if board.is_solved():
-                self._record_history(board, 'solved')
-                yield board
-                return
-
-            empty = board.empty_coordinates
-            if not empty:
-                return
-
-            x, y = min(
-                empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
-            )
-            possible = board.possible_values(x, y)
-
-            for value in possible:
-                new_board = board.copy()
-                new_board.make_move(x, y, value)
-                self._record_history(new_board, 'fill', cell=(x, y), value=value)
-
-                yield new_board
-
-                for result in self._solve(new_board):
-                    yield result
-                    if result.is_solved():
-                        return
-
-
-    class SmartSolver(Solver):
-        def board_states(self):
-            return self._solve(self.initial_board)
-
-        def _solve(self, board: Suguru):
-            self.stats.recursive_calls += 1
-
-            if board.is_solved():
-                self._record_history(board, 'solved')
-                yield board
-                return
-
-            empty = board.empty_coordinates
-            if not empty:
-                return
-
-            x, y = min(
-                empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
-            )
-            possible = board.possible_values(x, y)
-
-            for value in sorted(possible):
-                new_board = board.copy()
-                new_board.make_move(x, y, value)
-
-                if has_impossible_cell(new_board):
-                    self._record_history(new_board, 'pruned', cell=(x, y), value=value)
-                    continue
-
-                self._record_history(new_board, 'fill', cell=(x, y), value=value)
-                yield new_board
-
-                for result in self._solve(new_board):
-                    yield result
-                    if result.is_solved():
-                        return
-
-
-    class ConstraintPropSolver(Solver):
-        def board_states(self):
-            return self._solve(self.initial_board)
-
-        def _solve(self, board: Suguru):
-            self.stats.recursive_calls += 1
-
-            if board.is_solved():
-                self._record_history(board, 'solved')
-                yield board
-                return
-
-            # Handle constraint propagation
-            current_board = board.copy()
-            made_progress = True
-            while made_progress:
-                made_progress = False
-                forced = current_board.find_forced_moves()
-                if forced:
-                    # Make all forced moves at once
-                    for x, y, value in forced:
-                        current_board.make_move(x, y, value)
-                        made_progress = True
-                    self._record_history(current_board, 'constraint_prop', forced_count=len(forced))
-                    yield current_board.copy()
-
-                    if current_board.is_solved():
-                        self._record_history(current_board, 'solved')
-                        yield current_board
-                        return
-
-            # No more forced moves, proceed with normal backtracking
-            empty = current_board.empty_coordinates
-            if not empty:
-                return
-
-            x, y = min(
-                empty, key=lambda pos: (len(current_board.possible_values(*pos)), current_board.n_neighbors(*pos))
-            )
-            possible = current_board.possible_values(x, y)
-
-            for value in sorted(possible):
-                test_board = current_board.copy()
-                test_board.make_move(x, y, value)
-
-                if has_impossible_cell(test_board):
-                    self._record_history(test_board, 'pruned', cell=(x, y), value=value)
-                    continue
-
-                self._record_history(test_board, 'fill', cell=(x, y), value=value)
-                yield test_board
-
-                for result in self._solve(test_board):
-                    yield result
-                    if result.is_solved():
-                        return
-
-
-    # Keep old function-based API for backward compatibility
-    def solve(board: Suguru, stats: SolverStats = None):
-        if stats is None:
-            stats = SolverStats()
-
-        stats.recursive_calls += 1
-
-        if board.is_solved():
-            yield board
-            return
-
-        empty = board.empty_coordinates
-        if not empty:
-            return
-
-        x, y = min(
-            empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
-        )
-        possible = board.possible_values(x, y)
-
-        for value in possible:
-            new_board = board.copy()
-            new_board.make_move(x, y, value)
-
-            yield new_board
-
-            for result in solve(new_board, stats):
-                yield result
-                if result.is_solved():
-                    return
-
-
-    def solve_smart(board: Suguru, stats: SolverStats = None):
-        if stats is None:
-            stats = SolverStats()
-
-        stats.recursive_calls += 1
-
-        if board.is_solved():
-            yield board
-            return
-
-        empty = board.empty_coordinates
-        if not empty:
-            return
-
-        x, y = min(
-            empty, key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos))
-        )
-        possible = board.possible_values(x, y)
-
-        for value in sorted(possible):
-            new_board = board.copy()
-            new_board.make_move(x, y, value)
-
-            if has_impossible_cell(new_board):
-                continue
-
-            yield new_board
-
-            for result in solve_smart(new_board, stats):
-                yield result
-                if result.is_solved():
-                    return
-
-
-    def solve_constraint_prop(board: Suguru, stats: SolverStats = None):
-        """Solver with constraint propagation - handles forced moves before backtracking"""
-        if stats is None:
-            stats = SolverStats()
-
-        stats.recursive_calls += 1
-
-        if board.is_solved():
-            yield board
-            return
-
-        # Handle all forced moves in a loop (like propagate_constraints, but solver makes the moves)
-        current_board = board.copy()
-        made_progress = True
-        while made_progress:
-            made_progress = False
-            forced = current_board.find_forced_moves()
-            if forced:
-                # Make all forced moves at once
-                for x, y, value in forced:
-                    current_board.make_move(x, y, value)
-                    made_progress = True
-                yield current_board.copy()
-
-                if current_board.is_solved():
-                    yield current_board
-                    return
-
-        # No more forced moves, proceed with normal backtracking
-        empty = current_board.empty_coordinates
-        if not empty:
-            return
-
-        x, y = min(
-            empty, key=lambda pos: (len(current_board.possible_values(*pos)), current_board.n_neighbors(*pos))
-        )
-        possible = current_board.possible_values(x, y)
-
-        for value in sorted(possible):
-            test_board = current_board.copy()
-            test_board.make_move(x, y, value)
-
-            if has_impossible_cell(test_board):
-                continue
-
-            yield test_board
-
-            for result in solve_constraint_prop(test_board, stats):
-                yield result
-                if result.is_solved():
-                    return
-
-
-    def generate_random_shapes(width: int, height: int) -> list[list[int]]:
-        shapes = [[y * width + x for x in range(width)] for y in range(height)]
-
-        def get_region_sizes():
-            region_counts = {}
-            for y in range(height):
-                for x in range(width):
-                    region_id = shapes[y][x]
-                    region_counts[region_id] = region_counts.get(region_id, 0) + 1
-            return region_counts
-
-        def meets_constraints():
-            sizes = get_region_sizes()
-            size_1_count = sum(1 for size in sizes.values() if size == 1)
-            size_2_count = sum(1 for size in sizes.values() if size == 2)
-            return size_1_count == 0 and size_2_count <= 2
-
-        num_merges = random.randint(width * height // 2, width * height * 2 // 3)
-
-        for _ in range(num_merges):
-            x = random.randint(0, width - 1)
-            y = random.randint(0, height - 1)
-
-            neighbors = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
-            valid_neighbors = [
-                (nx, ny) for nx, ny in neighbors if 0 <= nx < width and 0 <= ny < height
-            ]
-
-            if not valid_neighbors:
-                continue
-
-            nx, ny = random.choice(valid_neighbors)
-
-            region1 = shapes[y][x]
-            region2 = shapes[ny][nx]
-
-            if region1 != region2:
-                for y2 in range(height):
-                    for x2 in range(width):
-                        if shapes[y2][x2] == region2:
-                            shapes[y2][x2] = region1
-
-        max_additional_merges = width * height
-        attempts = 0
-        while not meets_constraints() and attempts < max_additional_merges:
-            sizes = get_region_sizes()
-            size_1_regions = [rid for rid, size in sizes.items() if size == 1]
-            size_2_regions = [rid for rid, size in sizes.items() if size == 2]
-
-            if size_1_regions:
-                region_to_merge = random.choice(size_1_regions)
-            elif len(size_2_regions) > 2:
-                region_to_merge = random.choice(size_2_regions)
-            else:
-                break
-
-            cells_in_region = [
-                (x, y) for y in range(height) for x in range(width) if shapes[y][x] == region_to_merge
-            ]
-            if not cells_in_region:
-                break
-
-            x, y = random.choice(cells_in_region)
-            neighbors = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
-            valid_neighbors = [
-                (nx, ny) for nx, ny in neighbors if 0 <= nx < width and 0 <= ny < height
-            ]
-
-            if valid_neighbors:
-                nx, ny = random.choice(valid_neighbors)
-                other_region = shapes[ny][nx]
-                if other_region != region_to_merge:
-                    for y2 in range(height):
-                        for x2 in range(width):
-                            if shapes[y2][x2] == region_to_merge:
-                                shapes[y2][x2] = other_region
-
-            attempts += 1
-
-        region_map = {}
-        new_id = 0
-        for y in range(height):
-            for x in range(width):
-                old_id = shapes[y][x]
-                if old_id not in region_map:
-                    region_map[old_id] = new_id
-                    new_id += 1
-                shapes[y][x] = region_map[old_id]
-
-        return shapes
-
-
-    def generate_random_solved(
-        shapes: list[list[int]] = None, width: int = 6, height: int = 6, max_attempts: int = 5
-    ) -> Suguru:
-        for attempt in range(max_attempts):
-            if shapes is None:
-                shapes = generate_random_shapes(width, height)
-
-            board = Suguru([], shapes)
-
-            def _fill_random(board: Suguru) -> bool:
-                if board.is_solved():
-                    return True
-
-                empty = board.empty_coordinates
-                if not empty:
-                    return False
-
-                x, y = min(
-                    empty,
-                    key=lambda pos: (len(board.possible_values(*pos)), board.n_neighbors(*pos)),
-                )
-                possible = list(board.possible_values(x, y))
-                if not possible:
-                    return False
-                random.shuffle(possible)
-
-                for value in possible:
-                    board.make_move(x, y, value)
-                    if _fill_random(board):
-                        return True
-                    board.board[y][x] = None
-
-                return False
-
-            if _fill_random(board):
-                return board
-
-            if shapes is not None:
-                break
-
-        raise ValueError(
-            f"Could not generate a solved board after {max_attempts} attempts - shapes may be invalid"
-        )
-    return BasicSolver, ConstraintPropSolver, SmartSolver, pd
+def _(BasicSolver, ConstraintPropSolver, SmartSolver, Suguru, pytest):
+    @pytest.mark.parametrize("shapes", [[[0, 1], [2, 3]], [[0, 1, 2], [3, 4, 5], [6, 7, 8]]])
+    @pytest.mark.parametrize("solver_cls", [BasicSolver, SmartSolver, ConstraintPropSolver])
+    def test_unsolvable_size_1_regions(shapes, solver_cls):
+        """Test that solvers correctly identify boards with all size-1 regions as unsolvable"""
+        board = Suguru(numbers=[], shapes=shapes)
+        solver = solver_cls(board, max_iterations=1000)
+        list(solver.board_states())  # Run the solver
+        # Assert that the board was NOT solved
+        assert not solver.solved
+
+    @pytest.mark.parametrize("solver_cls", [BasicSolver, SmartSolver, ConstraintPropSolver])
+    def test_final_board_no_nones(solver_cls):
+        shapes = [[0,0,0,0,0],[1,2,2,2,2],[3,3,3,2,2],[4,3,3,5,2],[4,4,4,5,5]]
+        board = Suguru(numbers=[], shapes=shapes)
+        solver = solver_cls(board, max_iterations=1000)
+        list(solver.board_states())  # Run the solver to populate stats
+        # Only check if solved - if not solved, board may have Nones
+        if solver.solved:
+            for row in solver.current_board.board:
+                for val in row:
+                    assert val is not None
+    return
 
 
 @app.cell
 def _():
-    from pathlib import Path
-    from suguru_widget.suguru_widget import SuguruGeneratorWidget
-    return (SuguruGeneratorWidget,)
-
-
-@app.cell
-def _(SuguruGeneratorWidget, mo):
-    generator_widget = SuguruGeneratorWidget(width=5, height=5)
-    generator_view = mo.ui.anywidget(generator_widget)
-    generator_view
-    return (generator_widget,)
-
-
-@app.cell
-def _(Suguru, generator_widget):
-    # Use shapes from widget to create board
-    widget_shapes = generator_widget.shapes
-
-    board = Suguru(numbers=[], shapes=widget_shapes)
-    return (board,)
-
-
-@app.cell
-def _(board):
-    board
-    return
-
-
-@app.cell
-def _(BasicSolver, ConstraintPropSolver, SmartSolver, board, pd):
-    # Compare solvers with clean class-based API
-    solver_basic = BasicSolver(board)
-    solver_smart = SmartSolver(board)
-    solver_cp = ConstraintPropSolver(board)
-
-    results_basic = list(solver_basic.board_states())
-    results_smart = list(solver_smart.board_states())
-    results_cp = list(solver_cp.board_states())
-
-    # Get final states
-    final_basic = results_basic[-1] if results_basic else None
-    final_smart = results_smart[-1] if results_smart else None
-    final_cp = results_cp[-1] if results_cp else None
-
-    # Create comparison table
-    comparison_data = []
-    for name, solver, final_state in [
-        ("Basic", solver_basic, final_basic),
-        ("Smart", solver_smart, final_smart),
-        ("Constraint Prop", solver_cp, final_cp),
-    ]:
-        is_solved = final_state.is_solved() if final_state else False
-        empty_cells = len(final_state.empty_coordinates) if final_state else len(board.empty_coordinates)
-        comparison_data.append({
-            "Solver": name,
-            "Solved": "✓" if is_solved else "✗",
-            "Recursive Calls": solver.stats.recursive_calls,
-            "Total Steps": solver.total_steps,
-            "Empty Cells": empty_cells,
-            "Cells Filled": len(board.empty_coordinates) - empty_cells,
-        })
-
-    comparison_df = pd.DataFrame(comparison_data)
-    comparison_df
-    return (solver_smart,)
-
-
-@app.cell
-def _(solver_smart):
-    # Show history DataFrame for constraint prop solver
-    solver_smart.history_df
-    return
-
-
-@app.cell
-def _(ConstraintPropSolver, board):
-    _solver_cp = ConstraintPropSolver(board)
-    _results_cp = list(_solver_cp.board_states())
-    _solution_cp = _results_cp[-1] if _results_cp else None
-    _solution_cp, _solution_cp.is_solved() if _solution_cp else False
-    return
-
-
-@app.cell
-def _(BasicSolver, board):
-    _solver_basic = BasicSolver(board)
-    _results_basic = list(_solver_basic.board_states())
-    print(f"Total states explored: {len(_results_basic)}")
-    print(f"Recursive calls: {_solver_basic.stats.recursive_calls}")
-    print(f"Total steps (cells filled): {_solver_basic.total_steps}")
-    _solution_basic = _results_basic[-1] if _results_basic else None
-    if _solution_basic:
-        print(f"Is solved: {_solution_basic.is_solved()}")
-        print(f"Empty cells: {len(_solution_basic.empty_coordinates)}")
-        print(_solution_basic)
-    else:
-        print("No results - solver found no valid paths")
-
-    _solution_basic
-    return
+    import pytest
+    return (pytest,)
 
 
 if __name__ == "__main__":
