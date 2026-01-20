@@ -9,7 +9,7 @@
 
 import marimo
 
-__generated_with = "0.10.19"
+__generated_with = "0.19.4"
 app = marimo.App(width="medium")
 
 
@@ -28,13 +28,13 @@ def _():
 @app.cell
 def _(CubeWidget, mo):
     cube = CubeWidget(
-        x_axis={"name": "Temperature", "values": [20, 25, 30, 35, 40]},
-        y_axis={"name": "Pressure", "values": [0, 25, 50, 75, 100]},
-        z_axis={"name": "Time", "values": [0, 0.5, 1, 1.5, 2, 2.5, 3]},
+        x_axis={"name": "Temp", "values": [i for i in range(20, 41)]},
+        y_axis={"name": "Pressure", "values": [i * 5 for i in range(21)]},
+        z_axis={"name": "Time", "values": [i * 0.1 for i in range(31)]},
     )
     cube_view = mo.ui.anywidget(cube)
     cube_view
-    return cube, cube_view
+    return (cube,)
 
 
 @app.cell

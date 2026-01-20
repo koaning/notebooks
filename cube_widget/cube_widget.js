@@ -154,31 +154,35 @@ function render({ model, el }) {
     arrow.setAttribute("fill", displayColor);
     group.appendChild(arrow);
 
-    // Label background (larger click target)
+    // Label text (create first to measure)
+    const labelText = badge ? `${badge} ${config.name}` : config.name;
+    const textWidth = labelText.length * 8 + 16; // Approximate width
+    const bgWidth = Math.max(50, textWidth);
+    const bgHeight = 26;
+
+    // Label background
     const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    const bgWidth = 70;
-    const bgHeight = 32;
-    labelBg.setAttribute("x", labelPos.x - bgWidth / 2 + 15);
+    labelBg.setAttribute("x", labelPos.x - bgWidth / 2 + 12);
     labelBg.setAttribute("y", labelPos.y - bgHeight / 2);
     labelBg.setAttribute("width", bgWidth);
     labelBg.setAttribute("height", bgHeight);
-    labelBg.setAttribute("rx", "6");
+    labelBg.setAttribute("rx", "4");
     labelBg.setAttribute("fill", lockIndex >= 0 ? displayColor : "white");
     labelBg.setAttribute("stroke", displayColor);
-    labelBg.setAttribute("stroke-width", "2");
+    labelBg.setAttribute("stroke-width", lockIndex >= 0 ? "0" : "1.5");
     labelBg.setAttribute("class", "axis-label-bg");
     group.appendChild(labelBg);
 
     // Label text
     const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", labelPos.x + 15);
-    text.setAttribute("y", labelPos.y + 5);
+    text.setAttribute("x", labelPos.x + 12);
+    text.setAttribute("y", labelPos.y + 4);
     text.setAttribute("text-anchor", "middle");
-    text.setAttribute("font-size", "14");
-    text.setAttribute("font-weight", "bold");
+    text.setAttribute("font-size", "12");
+    text.setAttribute("font-weight", "600");
     text.setAttribute("fill", lockIndex >= 0 ? "white" : displayColor);
     text.setAttribute("class", "axis-label-text");
-    text.textContent = badge ? `${badge} ${config.name}` : config.name;
+    text.textContent = labelText;
     group.appendChild(text);
 
     // Click handler
@@ -353,78 +357,86 @@ function render({ model, el }) {
     return (value - min) / (max - min);
   }
 
-  // Update display
+  // Update display - minimal
   function updateStateDisplay() {
     const lockedOrder = model.get("locked_order") || [];
-    const axisValues = model.get("axis_values") || {};
-
-    let stateText = "";
     if (lockedOrder.length === 0) {
-      stateText = "Click an axis to select a plane";
-    } else if (lockedOrder.length === 1) {
-      const config = getAxisConfig(lockedOrder[0]);
-      stateText = `① Plane: ${config.name} = ${axisValues[lockedOrder[0]]?.toFixed?.(2) ?? axisValues[lockedOrder[0]] ?? "?"}`;
-    } else if (lockedOrder.length === 2) {
-      const config1 = getAxisConfig(lockedOrder[0]);
-      const config2 = getAxisConfig(lockedOrder[1]);
-      stateText = `① ${config1.name}=${axisValues[lockedOrder[0]]?.toFixed?.(2) ?? axisValues[lockedOrder[0]]}, ② ${config2.name}=${axisValues[lockedOrder[1]]?.toFixed?.(2) ?? axisValues[lockedOrder[1]]}`;
+      stateDisplay.textContent = "Click an axis to begin";
+      stateDisplay.style.display = "block";
     } else {
-      stateText = `Point selected`;
+      stateDisplay.style.display = "none";
     }
-
-    stateDisplay.textContent = stateText;
   }
 
-  // Update value selectors - use clickable buttons instead of sliders
+  // Update sliders - smooth range inputs
   function updateSliders() {
     const lockedOrder = model.get("locked_order") || [];
     const axisValues = model.get("axis_values") || {};
 
-    slidersContainer.innerHTML = "";
+    // Only rebuild if locked axes changed
+    const currentAxes = Array.from(slidersContainer.querySelectorAll("[data-axis]")).map(el => el.dataset.axis);
+    const needsRebuild = lockedOrder.length !== currentAxes.length ||
+                         !lockedOrder.every((a, i) => a === currentAxes[i]);
 
-    lockedOrder.forEach((axis, index) => {
-      const config = getAxisConfig(axis);
-      const values = config.values || [0, 1];
-      const currentValue = axisValues[axis] ?? values[Math.floor(values.length / 2)];
+    if (needsRebuild) {
+      slidersContainer.innerHTML = "";
 
-      const row = document.createElement("div");
-      row.className = "value-selector-row";
+      lockedOrder.forEach((axis, index) => {
+        const config = getAxisConfig(axis);
+        const values = config.values || [0, 1];
+        const min = Math.min(...values);
+        const max = Math.max(...values);
 
-      const badges = ["①", "②", "③"];
+        const row = document.createElement("div");
+        row.className = "slider-row";
+        row.dataset.axis = axis;
 
-      const label = document.createElement("span");
-      label.className = "value-selector-label";
-      label.style.color = AXIS_COLORS[axis];
-      label.textContent = `${badges[index]} ${config.name}:`;
-      row.appendChild(label);
+        const label = document.createElement("span");
+        label.className = "slider-label";
+        label.style.color = AXIS_COLORS[axis];
+        label.textContent = config.name;
+        row.appendChild(label);
 
-      const buttonsContainer = document.createElement("div");
-      buttonsContainer.className = "value-buttons";
+        const slider = document.createElement("input");
+        slider.type = "range";
+        slider.min = min;
+        slider.max = max;
+        slider.step = (max - min) / 100; // Smooth steps
+        slider.value = axisValues[axis] ?? (min + max) / 2;
+        slider.className = "axis-slider";
+        slider.style.accentColor = AXIS_COLORS[axis];
+        row.appendChild(slider);
 
-      values.forEach((value) => {
-        const btn = document.createElement("button");
-        btn.className = "value-btn";
-        btn.textContent = typeof value === "number" ? value.toFixed(1) : value;
+        const valueSpan = document.createElement("span");
+        valueSpan.className = "slider-value";
+        valueSpan.textContent = (axisValues[axis] ?? (min + max) / 2).toFixed(1);
+        row.appendChild(valueSpan);
 
-        // Highlight if this is the current value
-        if (value === currentValue) {
-          btn.classList.add("active");
-          btn.style.backgroundColor = AXIS_COLORS[axis];
-          btn.style.color = "white";
-        }
-
-        btn.addEventListener("click", () => {
-          const newAxisValues = { ...model.get("axis_values"), [axis]: value };
+        slider.addEventListener("input", () => {
+          const newValue = parseFloat(slider.value);
+          valueSpan.textContent = newValue.toFixed(1);
+          const newAxisValues = { ...model.get("axis_values"), [axis]: newValue };
           model.set("axis_values", newAxisValues);
           model.save_changes();
         });
 
-        buttonsContainer.appendChild(btn);
+        slidersContainer.appendChild(row);
       });
-
-      row.appendChild(buttonsContainer);
-      slidersContainer.appendChild(row);
-    });
+    } else {
+      // Just update values without rebuilding
+      lockedOrder.forEach((axis) => {
+        const row = slidersContainer.querySelector(`[data-axis="${axis}"]`);
+        if (row) {
+          const slider = row.querySelector("input");
+          const valueSpan = row.querySelector(".slider-value");
+          const currentValue = axisValues[axis];
+          if (slider && currentValue !== undefined && parseFloat(slider.value) !== currentValue) {
+            slider.value = currentValue;
+            valueSpan.textContent = currentValue.toFixed(1);
+          }
+        }
+      });
+    }
   }
 
   // Main render function
