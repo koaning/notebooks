@@ -13,8 +13,11 @@ function render({ model, el }) {
   const roadRadius = 120;
   const stepSize = 1; // Move forward 1 pixel per step (Bret Victor's model)
 
-  let path = [];
+  // Store all computed paths: Map<"angle,roadWidth" -> path>
+  let allPaths = new Map();
+  let selectedPath = [];
   let isDragging = false;
+  let pathsInitialized = false;
 
   // Load Bret Victor's car image (32x16 pixels)
   const carImage = new Image();
@@ -22,10 +25,12 @@ function render({ model, el }) {
   let carImageLoaded = false;
   carImage.onload = () => {
     carImageLoaded = true;
-    draw();
+    if (pathsInitialized) {
+      draw();
+    }
   };
 
-  // Normalize angle difference to [-π, π]
+  // Normalize angle difference to [-pi, pi]
   function angleDiff(a, b) {
     let diff = a - b;
     while (diff > Math.PI) diff -= 2 * Math.PI;
@@ -33,22 +38,17 @@ function render({ model, el }) {
     return diff;
   }
 
-  // Compute the car's path using Bret Victor's model:
-  // At each step:
-  //   1. Move forward 1 pixel
-  //   2. If left of road (inside circle), turn right by angle
-  //   3. If right of road (outside circle), turn left by angle
+  // Compute the car's path using Bret Victor's model
   function computePath(steeringAngleDeg, roadWidth) {
     const steeringAngle = (steeringAngleDeg * Math.PI) / 180;
     const result = [];
 
     let carX = roadRadius;
     let carY = 0;
-    let carAngle = Math.PI / 2; // Facing up (tangent to circle)
+    let carAngle = Math.PI / 2;
     let totalAngleTraveled = 0;
 
-    // Continue until car completes 1 full lap
-    const maxSteps = 10000; // Safety limit
+    const maxSteps = 10000;
     let steps = 0;
 
     while (totalAngleTraveled < 2 * Math.PI && steps < maxSteps) {
@@ -57,24 +57,19 @@ function render({ model, el }) {
 
       const prevRoadAngle = Math.atan2(carY, carX);
 
-      // Move car forward 1 pixel in current direction
       carX += Math.cos(carAngle) * stepSize;
       carY += Math.sin(carAngle) * stepSize;
 
-      // Check if car is left or right of road
       const distFromCenter = Math.sqrt(carX * carX + carY * carY);
       const innerEdge = roadRadius - roadWidth / 2;
       const outerEdge = roadRadius + roadWidth / 2;
 
       if (distFromCenter < innerEdge) {
-        // Left of road (inside circle) - turn right
         carAngle -= steeringAngle;
       } else if (distFromCenter > outerEdge) {
-        // Right of road (outside circle) - turn left
         carAngle += steeringAngle;
       }
 
-      // Track progress around the circle
       const newRoadAngle = Math.atan2(carY, carX);
       const angleDelta = angleDiff(newRoadAngle, prevRoadAngle);
       if (angleDelta > 0) {
@@ -83,24 +78,6 @@ function render({ model, el }) {
     }
 
     return result;
-  }
-
-  // Find closest point on path to given coordinates
-  function findClosestPointIndex(x, y) {
-    let minDist = Infinity;
-    let minIndex = 0;
-
-    for (let i = 0; i < path.length; i++) {
-      const dx = path[i][0] - x;
-      const dy = path[i][1] - y;
-      const dist = dx * dx + dy * dy;
-      if (dist < minDist) {
-        minDist = dist;
-        minIndex = i;
-      }
-    }
-
-    return minIndex;
   }
 
   // Compute total path length
@@ -114,35 +91,96 @@ function render({ model, el }) {
     return total;
   }
 
-  function draw() {
-    const angle = model.get("angle");
-    const roadWidth = model.get("road_width");
-    const position = model.get("position");
+  // Find closest point on selected path to given coordinates
+  function findClosestPointIndex(x, y) {
+    let minDist = Infinity;
+    let minIndex = 0;
 
-    // Recompute path when angle or road_width changes
-    path = computePath(angle, roadWidth);
+    for (let i = 0; i < selectedPath.length; i++) {
+      const dx = selectedPath[i][0] - x;
+      const dy = selectedPath[i][1] - y;
+      const dist = dx * dx + dy * dy;
+      if (dist < minDist) {
+        minDist = dist;
+        minIndex = i;
+      }
+    }
 
-    // Compute and sync total length
-    const totalLength = computePathLength(path);
-    if (model.get("total_length") !== totalLength) {
-      model.set("total_length", totalLength);
+    return minIndex;
+  }
+
+  // Compute all paths and sync path_data back to Python
+  function computeAllPaths() {
+    let angles = model.get("angles");
+    let roadWidths = model.get("road_widths");
+    if (!Array.isArray(angles) || angles.length === 0) angles = [2.0];
+    if (!Array.isArray(roadWidths) || roadWidths.length === 0) roadWidths = [40.0];
+
+    allPaths.clear();
+    const pathData = [];
+
+    for (const angle of angles) {
+      for (const roadWidth of roadWidths) {
+        const key = `${angle},${roadWidth}`;
+        const path = computePath(angle, roadWidth);
+        const totalLength = computePathLength(path);
+
+        allPaths.set(key, path);
+        pathData.push({
+          angle: angle,
+          road_width: roadWidth,
+          total_length: totalLength
+        });
+      }
+    }
+
+    // Sync computed data back to Python
+    const currentPathData = model.get("path_data");
+    if (JSON.stringify(currentPathData) !== JSON.stringify(pathData)) {
+      model.set("path_data", pathData);
       model.save_changes();
     }
+  }
 
-    // Find path bounds for auto-scaling
+  function draw() {
+    // Get values with safe defaults
+    let angles = model.get("angles");
+    let roadWidths = model.get("road_widths");
+    if (!Array.isArray(angles) || angles.length === 0) angles = [2.0];
+    if (!Array.isArray(roadWidths) || roadWidths.length === 0) roadWidths = [40.0];
+
+    const selectedAngle = model.get("selected_angle") || angles[0];
+    const selectedRoadWidth = model.get("selected_road_width") || roadWidths[0];
+    const position = model.get("position") || 0;
+
+    // Ensure we have the selected path
+    const selectedKey = `${selectedAngle},${selectedRoadWidth}`;
+    selectedPath = allPaths.get(selectedKey) || [];
+
+    // If selected path doesn't exist, compute it
+    if (selectedPath.length === 0) {
+      selectedPath = computePath(selectedAngle, selectedRoadWidth);
+    }
+
+    // Find global bounds across ALL paths for consistent scaling
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
-    for (const [px, py] of path) {
-      minX = Math.min(minX, px);
-      maxX = Math.max(maxX, px);
-      minY = Math.min(minY, py);
-      maxY = Math.max(maxY, py);
+
+    for (const path of allPaths.values()) {
+      for (const [px, py] of path) {
+        minX = Math.min(minX, px);
+        maxX = Math.max(maxX, px);
+        minY = Math.min(minY, py);
+        maxY = Math.max(maxY, py);
+      }
     }
-    // Include road bounds
-    minX = Math.min(minX, -roadRadius - roadWidth);
-    maxX = Math.max(maxX, roadRadius + roadWidth);
-    minY = Math.min(minY, -roadRadius - roadWidth);
-    maxY = Math.max(maxY, roadRadius + roadWidth);
+
+    // Include road bounds (use max road width)
+    const maxRoadWidth = Math.max(...roadWidths);
+    minX = Math.min(minX, -roadRadius - maxRoadWidth);
+    maxX = Math.max(maxX, roadRadius + maxRoadWidth);
+    minY = Math.min(minY, -roadRadius - maxRoadWidth);
+    maxY = Math.max(maxY, roadRadius + maxRoadWidth);
 
     const pathWidth = maxX - minX;
     const pathHeight = maxY - minY;
@@ -157,7 +195,6 @@ function render({ model, el }) {
     const offsetX = -(minX + maxX) / 2 * scale;
     const offsetY = (minY + maxY) / 2 * scale;
 
-    // Convert path coordinates to canvas coordinates
     function pathToCanvas(pathX, pathY) {
       return [
         centerX + pathX * scale + offsetX,
@@ -172,63 +209,68 @@ function render({ model, el }) {
       ];
     }
 
-    // Store for mouse events
     canvas._pathToCanvas = pathToCanvas;
     canvas._canvasToPath = canvasToPath;
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw road (gray ring)
+    // Draw road (gray ring) using selected road width
     ctx.beginPath();
     const [cx, cy] = pathToCanvas(0, 0);
     ctx.arc(cx, cy, roadRadius * scale, 0, 2 * Math.PI);
     ctx.strokeStyle = "#e5e5e5";
-    ctx.lineWidth = roadWidth * scale;
+    ctx.lineWidth = selectedRoadWidth * scale;
     ctx.stroke();
 
     // Draw road edge lines
     ctx.beginPath();
-    ctx.arc(cx, cy, (roadRadius - roadWidth / 2) * scale, 0, 2 * Math.PI);
+    ctx.arc(cx, cy, (roadRadius - selectedRoadWidth / 2) * scale, 0, 2 * Math.PI);
     ctx.strokeStyle = "#999";
     ctx.lineWidth = 2;
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(cx, cy, (roadRadius + roadWidth / 2) * scale, 0, 2 * Math.PI);
+    ctx.arc(cx, cy, (roadRadius + selectedRoadWidth / 2) * scale, 0, 2 * Math.PI);
     ctx.strokeStyle = "#999";
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Draw path (the car's trajectory)
-    if (path.length > 1) {
-      ctx.beginPath();
-      const [startX, startY] = pathToCanvas(path[0][0], path[0][1]);
-      ctx.moveTo(startX, startY);
+    // Draw ALL paths (faded)
+    for (const [key, path] of allPaths) {
+      if (path.length > 1) {
+        ctx.beginPath();
+        const [startX, startY] = pathToCanvas(path[0][0], path[0][1]);
+        ctx.moveTo(startX, startY);
 
-      for (let i = 1; i < path.length; i++) {
-        const [px, py] = pathToCanvas(path[i][0], path[i][1]);
-        ctx.lineTo(px, py);
+        for (let i = 1; i < path.length; i++) {
+          const [px, py] = pathToCanvas(path[i][0], path[i][1]);
+          ctx.lineTo(px, py);
+        }
+
+        // Faded style for non-selected paths, red for selected
+        if (key === selectedKey) {
+          ctx.strokeStyle = "#dc2626";  // Red for selected path
+          ctx.lineWidth = 2;
+        } else {
+          ctx.strokeStyle = "rgba(59, 130, 246, 0.15)";
+          ctx.lineWidth = 1;
+        }
+        ctx.stroke();
       }
-
-      ctx.strokeStyle = "#3b82f6";
-      ctx.lineWidth = 2;
-      ctx.stroke();
     }
 
-    // Draw car at current position
-    if (path.length > 0) {
-      const pathIndex = Math.floor(position * (path.length - 1));
-      const clampedIndex = Math.max(0, Math.min(path.length - 1, pathIndex));
-      const [carPathX, carPathY, carAngle] = path[clampedIndex];
+    // Draw car on selected path
+    if (selectedPath.length > 0) {
+      const pathIndex = Math.floor(position * (selectedPath.length - 1));
+      const clampedIndex = Math.max(0, Math.min(selectedPath.length - 1, pathIndex));
+      const [carPathX, carPathY, carAngle] = selectedPath[clampedIndex];
       const [carCanvasX, carCanvasY] = pathToCanvas(carPathX, carPathY);
 
-      // Draw car using Bret Victor's actual car.png image
       ctx.save();
       ctx.translate(carCanvasX, carCanvasY);
-      ctx.rotate(-carAngle); // Car points in direction of travel
+      ctx.rotate(-carAngle);
 
-      // Car image is 32x16 pixels, scale it appropriately
       const carDrawWidth = 32 * scale * 0.8;
       const carDrawHeight = 16 * scale * 0.8;
 
@@ -241,7 +283,6 @@ function render({ model, el }) {
           carDrawHeight
         );
       } else {
-        // Fallback: draw a simple red rectangle while image loads
         ctx.fillStyle = "#e53935";
         ctx.fillRect(-carDrawWidth / 2, -carDrawHeight / 2, carDrawWidth, carDrawHeight);
       }
@@ -271,22 +312,32 @@ function render({ model, el }) {
     const canvasX = e.clientX - rect.left;
     const canvasY = e.clientY - rect.top;
 
-    if (canvas._canvasToPath) {
+    if (canvas._canvasToPath && selectedPath.length > 0) {
       const [pathX, pathY] = canvas._canvasToPath(canvasX, canvasY);
       const closestIndex = findClosestPointIndex(pathX, pathY);
-      const newPosition = path.length > 1 ? closestIndex / (path.length - 1) : 0;
+      const newPosition = selectedPath.length > 1 ? closestIndex / (selectedPath.length - 1) : 0;
 
       model.set("position", newPosition);
       model.save_changes();
     }
   }
 
+  // Recompute all paths when angle or road_width lists change
+  function onParametersChange() {
+    computeAllPaths();
+    draw();
+  }
+
   // Listen for model changes
-  model.on("change:angle", draw);
-  model.on("change:road_width", draw);
+  model.on("change:angles", onParametersChange);
+  model.on("change:road_widths", onParametersChange);
+  model.on("change:selected_angle", draw);
+  model.on("change:selected_road_width", draw);
   model.on("change:position", draw);
 
-  // Initial draw
+  // Initial computation and draw
+  computeAllPaths();
+  pathsInitialized = true;
   draw();
 
   return () => {
