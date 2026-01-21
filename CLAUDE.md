@@ -131,6 +131,26 @@ Only use try/except when:
 - The exception is expected in normal operation (e.g., file not found)
 - You have a meaningful recovery action
 
+## Cell Output Rendering
+
+Marimo only renders the **final expression** of a cell. Indented or conditional expressions won't render:
+
+```python
+# BAD - indented expression won't render
+@app.cell
+def _(mo, condition):
+    if condition:
+        mo.md("This won't show!")  # WRONG - indented
+    return
+
+# GOOD - final expression renders
+@app.cell
+def _(mo, condition):
+    result = mo.md("Shown!") if condition else mo.md("Also shown!")
+    result  # This renders because it's the final expression
+    return
+```
+
 ## Marimo Variable Naming
 
 Variables in `for` loops that would conflict across cells need underscore prefix:
