@@ -32,7 +32,7 @@ def _(CubeWidget, mo):
     cube_view = mo.ui.anywidget(CubeWidget(
         x_axis={"name": "Angle", "values": [i for i in range(0, 90, 5)]},
         y_axis={"name": "Force", "values": [i * 5 for i in range(21)]},
-        z_axis={"name": "Time", "values": [i * 0.1 for i in range(31)]},
+        z_axis={"name": "Time", "values": [i * 0.5 for i in range(31)]},
     ))
     return (cube_view,)
 
@@ -108,11 +108,9 @@ def _(calculate_trajectory, cube_view, np, plt):
     force = axis_values["y"]  # y = Force
     current_time = axis_values["z"]  # z = Time
 
-    # Get axis values from widget (subsample for clarity in visualization)
+    # Get axis values from widget
     all_angles = cube_view.value["x_axis"]["values"]
-    all_forces = cube_view.value["y_axis"]["values"]
-    angle_range = all_angles[::2]  # Every other angle for clarity
-    force_range = [f for f in all_forces[::4] if f > 0]  # Every 4th force, skip 0
+    all_forces = [f for f in cube_view.value["y_axis"]["values"] if f > 0]  # Skip zero force
 
     fig, ax = plt.subplots(figsize=(8, 6))
     g = 9.8
@@ -124,19 +122,14 @@ def _(calculate_trajectory, cube_view, np, plt):
 
     num_locked = len(locked_order)
 
-    # VOLUME (nothing locked) - show representative family
+    # VOLUME (nothing locked) - show all trajectories, no highlight
     if num_locked == 0:
-        for a in angle_range:
+        for a in all_angles:
             a_safe = max(a, 1)
             t_max = 2 * force * np.sin(np.radians(a_safe)) / g + 0.5
             t_full = np.linspace(0, max(t_max, 0.1), 100)
             x_traj, y_traj = calculate_trajectory(a, force, t_full)
             ax.plot(x_traj, y_traj, color=plane_color, alpha=0.4, linewidth=1)
-        # Highlight current angle
-        t_max = 2 * force * np.sin(np.radians(max(angle, 1))) / g + 0.5
-        t_full = np.linspace(0, max(t_max, 0.1), 100)
-        x_hl, y_hl = calculate_trajectory(angle, force, t_full)
-        ax.plot(x_hl, y_hl, color=line_color, linewidth=2)
         ax.set_title('Volume: all free')
 
     else:
@@ -144,8 +137,8 @@ def _(calculate_trajectory, cube_view, np, plt):
         first_locked = locked_order[0]
 
         # Draw PLANE background based on which axis was locked first
-        if first_locked == "x":  # Angle locked
-            for f in force_range:
+        if first_locked == "x":  # Angle locked - show all force trajectories
+            for f in all_forces:
                 a_safe = max(angle, 1)
                 t_max = 2 * f * np.sin(np.radians(a_safe)) / g + 0.5
                 t_full = np.linspace(0, max(t_max, 0.1), 100)
@@ -153,8 +146,8 @@ def _(calculate_trajectory, cube_view, np, plt):
                 ax.plot(x_traj, y_traj, color=plane_color, alpha=0.4, linewidth=1)
             plane_desc = f'Angle={angle:.0f}°'
 
-        elif first_locked == "y":  # Force locked
-            for a in angle_range:
+        elif first_locked == "y":  # Force locked - show all angle trajectories
+            for a in all_angles:
                 a_safe = max(a, 1)
                 t_max = 2 * force * np.sin(np.radians(a_safe)) / g + 0.5
                 t_full = np.linspace(0, max(t_max, 0.1), 100)
@@ -162,31 +155,19 @@ def _(calculate_trajectory, cube_view, np, plt):
                 ax.plot(x_traj, y_traj, color=plane_color, alpha=0.4, linewidth=1)
             plane_desc = f'Force={force:.0f}'
 
-        else:  # Time locked (z)
-            for a in angle_range:
-                for f in force_range:
+        else:  # Time locked (z) - show all angle/force combinations
+            for a in all_angles:
+                for f in all_forces:
                     x_pt, y_pt = calculate_trajectory(a, f, np.array([current_time]))
-                    ax.plot(x_pt[0], y_pt[0], 'o', color=plane_color, alpha=0.4, markersize=6)
+                    ax.plot(x_pt[0], y_pt[0], 'o', color=plane_color, alpha=0.4, markersize=4)
             plane_desc = f'Time={current_time:.1f}s'
 
         # Now add LINE highlight (if 2+ locked) or preview (if just 1 locked)
         locked_set = set(locked_order)
 
         if num_locked == 1:
-            # Just plane - highlight current position as preview
-            if first_locked == "x":  # Angle locked, preview current force trajectory
-                t_max = 2 * force * np.sin(np.radians(max(angle, 1))) / g + 0.5
-                t_full = np.linspace(0, max(t_max, 0.1), 100)
-                x_hl, y_hl = calculate_trajectory(angle, force, t_full)
-                ax.plot(x_hl, y_hl, color=line_color, linewidth=2)
-            elif first_locked == "y":  # Force locked, preview current angle trajectory
-                t_max = 2 * force * np.sin(np.radians(max(angle, 1))) / g + 0.5
-                t_full = np.linspace(0, max(t_max, 0.1), 100)
-                x_hl, y_hl = calculate_trajectory(angle, force, t_full)
-                ax.plot(x_hl, y_hl, color=line_color, linewidth=2)
-            else:  # Time locked, preview current point
-                x_now, y_now = calculate_trajectory(angle, force, np.array([current_time]))
-                ax.plot(x_now[0], y_now[0], 'o', color=line_color, markersize=12)
+            # Just plane - don't highlight anything specific
+            # (the plane already shows all possibilities for the free dimensions)
             ax.set_title(f'Plane: {plane_desc}')
 
         elif num_locked == 2:
@@ -199,19 +180,13 @@ def _(calculate_trajectory, cube_view, np, plt):
                 x_traj, y_traj = calculate_trajectory(angle, force, t_full)
                 ax.plot(x_traj, y_traj, color=line_color, linewidth=2)
             elif free_axis == "x":  # Angle free - line is points at different angles
-                for a in angle_range:
+                for a in all_angles:
                     x_pt, y_pt = calculate_trajectory(a, force, np.array([current_time]))
-                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.8, markersize=8)
-                x_now, y_now = calculate_trajectory(angle, force, np.array([current_time]))
-                ax.plot(x_now[0], y_now[0], 'o', color=line_color, markersize=12,
-                        markeredgecolor='black', markeredgewidth=2)
+                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.8, markersize=6)
             else:  # Force free - line is points at different forces
-                for f in force_range:
+                for f in all_forces:
                     x_pt, y_pt = calculate_trajectory(angle, f, np.array([current_time]))
-                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.8, markersize=8)
-                x_now, y_now = calculate_trajectory(angle, force, np.array([current_time]))
-                ax.plot(x_now[0], y_now[0], 'o', color=line_color, markersize=12,
-                        markeredgecolor='black', markeredgewidth=2)
+                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.8, markersize=6)
             ax.set_title(f'Line: {plane_desc} + ...')
 
         else:  # num_locked == 3 - Point
@@ -226,14 +201,14 @@ def _(calculate_trajectory, cube_view, np, plt):
                 ax.plot(x_traj, y_traj, color=line_color, linewidth=2)
             elif "x" not in first_two_locked:
                 # Angle was free until last lock - line was points at different angles
-                for a in angle_range:
+                for a in all_angles:
                     x_pt, y_pt = calculate_trajectory(a, force, np.array([current_time]))
-                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.6, markersize=8)
+                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.6, markersize=6)
             else:
                 # Force was free until last lock - line was points at different forces
-                for f in force_range:
+                for f in all_forces:
                     x_pt, y_pt = calculate_trajectory(angle, f, np.array([current_time]))
-                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.6, markersize=8)
+                    ax.plot(x_pt[0], y_pt[0], 'o', color=line_color, alpha=0.6, markersize=6)
 
             # Mark the point
             x_now, y_now = calculate_trajectory(angle, force, np.array([current_time]))
