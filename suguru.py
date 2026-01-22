@@ -332,12 +332,6 @@ def _(Suguru, generator_view, generator_widget):
 
 
 @app.cell
-def _(board):
-    board.to_inputs()
-    return
-
-
-@app.cell
 def _(BasicSolver, ConstraintPropSolver, SmartSolver, board, pd):
     # Compare solvers with clean class-based API
     solver_basic = BasicSolver(board)
@@ -374,12 +368,6 @@ def _(mo, solver_basic, solver_cp, solver_smart):
     mo.hstack([
         solver_basic.current_board, solver_smart.current_board, solver_cp.current_board
     ])
-    return
-
-
-@app.cell
-def _(solver_cp):
-    solver_cp.current_board.board
     return
 
 

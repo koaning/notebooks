@@ -31,7 +31,7 @@ function render({ model, el }) {
   newRegionButton.className = 'suguru-button';
   
   const clearButton = document.createElement('button');
-  clearButton.textContent = 'Clear';
+  clearButton.textContent = 'Reset';
   clearButton.className = 'suguru-button';
   
   controls.appendChild(widthLabel);
@@ -46,6 +46,9 @@ function render({ model, el }) {
   
   let currentRegionId = 0;
   let isDrawing = false;
+  let hasMoved = false;
+  let startX = -1;
+  let startY = -1;
   let shapes = [];
   
   function updateGrid() {
@@ -89,6 +92,10 @@ function render({ model, el }) {
         cell.addEventListener('mousedown', (e) => {
           e.preventDefault();
           isDrawing = true;
+          hasMoved = false;
+          startX = x;
+          startY = y;
+          
           // If right-click or ctrl-click, create new region
           if (e.button === 2 || e.ctrlKey || e.metaKey) {
             let maxId = -1;
@@ -98,10 +105,18 @@ function render({ model, el }) {
               }
             }
             currentRegionId = maxId + 1;
+            updateCell(x, y, currentRegionId);
           } else {
-            currentRegionId = parseInt(cell.dataset.regionId);
+            // On left click, create new region for that cell
+            let maxId = -1;
+            for (let y = 0; y < shapes.length; y++) {
+              for (let x = 0; x < shapes[y].length; x++) {
+                maxId = Math.max(maxId, shapes[y][x]);
+              }
+            }
+            currentRegionId = maxId + 1;
+            updateCell(x, y, currentRegionId);
           }
-          updateCell(x, y, currentRegionId);
         });
         
         // Prevent context menu on right-click
@@ -111,6 +126,7 @@ function render({ model, el }) {
         
         cell.addEventListener('mouseenter', () => {
           if (isDrawing) {
+            hasMoved = true;
             updateCell(x, y, currentRegionId);
           }
         });
@@ -194,6 +210,9 @@ function render({ model, el }) {
   
   document.addEventListener('mouseup', () => {
     isDrawing = false;
+    hasMoved = false;
+    startX = -1;
+    startY = -1;
   });
   
   // Initialize from model
