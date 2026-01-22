@@ -26,6 +26,34 @@ function isoProject(x, y, z) {
 function render({ model, el }) {
   el.classList.add("cube-widget-root");
 
+  // Detect theme from parent document (shadow DOM blocks parent CSS selectors)
+  function detectTheme() {
+    const html = document.documentElement;
+    const body = document.body;
+
+    // Check for common dark mode indicators
+    const isDark =
+      html.classList.contains('dark') ||
+      body.classList.contains('dark') ||
+      html.getAttribute('data-theme') === 'dark' ||
+      body.getAttribute('data-theme') === 'dark' ||
+      html.getAttribute('data-color-mode') === 'dark' ||
+      body.getAttribute('data-color-mode') === 'dark';
+
+    if (isDark) {
+      el.classList.add('dark-mode');
+    } else {
+      el.classList.remove('dark-mode');
+    }
+  }
+
+  detectTheme();
+
+  // Watch for theme changes
+  const observer = new MutationObserver(detectTheme);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-color-mode'] });
+  observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-color-mode'] });
+
   const container = document.createElement("div");
   container.className = "cube-container";
   el.appendChild(container);
@@ -63,26 +91,48 @@ function render({ model, el }) {
 
   // Draw wireframe cube
   function drawWireframe(p) {
-    const edges = [
-      // Front face
-      [p.v0, p.v1], [p.v1, p.v2], [p.v2, p.v3], [p.v3, p.v0],
+    // Front corner edges (transparent) - all meet at v2, the corner jutting toward viewer
+    const frontEdges = [
+      [p.v2, p.v3],  // front-top
+      [p.v1, p.v2],  // front-right going down
+      [p.v2, p.v6],  // top-right going back
+    ];
+
+    // Back/side edges (full opacity)
+    const backEdges = [
+      // Front face (bottom and left only)
+      [p.v0, p.v1], [p.v3, p.v0],
       // Back face
       [p.v4, p.v5], [p.v5, p.v6], [p.v6, p.v7], [p.v7, p.v4],
-      // Connecting edges
-      [p.v0, p.v4], [p.v1, p.v5], [p.v2, p.v6], [p.v3, p.v7],
+      // Connecting edges (left and bottom)
+      [p.v0, p.v4], [p.v1, p.v5], [p.v3, p.v7],
     ];
 
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.setAttribute("class", "wireframe");
 
-    edges.forEach(([start, end]) => {
+    const wireframeColor = getComputedStyle(el).getPropertyValue('--color-wireframe').trim() || COLORS.wireframe;
+
+    backEdges.forEach(([start, end]) => {
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", start.x);
       line.setAttribute("y1", start.y);
       line.setAttribute("x2", end.x);
       line.setAttribute("y2", end.y);
-      line.setAttribute("stroke", COLORS.wireframe);
+      line.setAttribute("stroke", wireframeColor);
       line.setAttribute("stroke-width", "2");
+      group.appendChild(line);
+    });
+
+    frontEdges.forEach(([start, end]) => {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", start.x);
+      line.setAttribute("y1", start.y);
+      line.setAttribute("x2", end.x);
+      line.setAttribute("y2", end.y);
+      line.setAttribute("stroke", wireframeColor);
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("stroke-opacity", "0.3");
       group.appendChild(line);
     });
 
@@ -453,7 +503,14 @@ function render({ model, el }) {
     // Draw wireframe first (back)
     svg.appendChild(drawWireframe(p));
 
-    // Draw selection geometry
+    // Draw axes behind selection geometry
+    ["x", "y", "z"].forEach((axis) => {
+      const config = getAxisConfig(axis);
+      const lockIndex = lockedOrder.indexOf(axis);
+      svg.appendChild(drawAxis(axis, p, config, lockIndex));
+    });
+
+    // Draw selection geometry on top
     if (lockedOrder.length >= 1) {
       const axis1 = lockedOrder[0];
       const value1 = normalizeValue(axis1, axisValues[axis1] ?? 0.5);
@@ -476,13 +533,6 @@ function render({ model, el }) {
       svg.appendChild(drawPoint(x, y, z, thirdAxis));
     }
 
-    // Draw axes on top
-    ["x", "y", "z"].forEach((axis) => {
-      const config = getAxisConfig(axis);
-      const lockIndex = lockedOrder.indexOf(axis);
-      svg.appendChild(drawAxis(axis, p, config, lockIndex));
-    });
-
     updateStateDisplay();
     updateSliders();
   }
@@ -499,6 +549,7 @@ function render({ model, el }) {
 
   return () => {
     // Cleanup
+    observer.disconnect();
   };
 }
 
