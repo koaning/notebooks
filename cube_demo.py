@@ -229,12 +229,6 @@ def _(calculate_trajectory, cube_view, np, plt):
 
 
 @app.cell
-def _(cube_view):
-    cube_view.value["plane"]
-    return
-
-
-@app.cell
 def _(cube_view, mo, trajectory_chart):
     mo.hstack([cube_view, trajectory_chart], justify="start", gap=1)
     return
