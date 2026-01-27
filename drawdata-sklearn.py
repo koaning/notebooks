@@ -47,11 +47,35 @@ def _(mo):
     return (is_script_mode,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Logistic Regression and the art of Preprocessing
+
+    In this notebook we are going to toy around with our own drawn datasets to figure out what the limits are of logistic regression. Maybe we will also learn a little bit about the art of free processing on top.
+
+    ## Step 1: Let's draw a dataset
+
+    Draw a dataset below by using at least two colors.
+    """)
+    return
+
+
 @app.cell
 def _(ScatterWidget, mo):
     scatter_widget = mo.ui.anywidget(ScatterWidget())
     scatter_widget
     return (scatter_widget,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Logistic Performance
+
+    Below you can see how well logistic regression performs on this dataset. It should be pretty easy to draw a dataset that's not linearly seperable to see where the model starts falling short.
+    """)
+    return
 
 
 @app.cell
@@ -159,6 +183,16 @@ def _(
 
 @app.cell
 def _(mo):
+    mo.md(r"""
+    ## Preprocessing
+
+    Instead of merely passing two coordinates to the model, we may also preprocess it. When we do this, the model is much more robust against non-linear spaces.
+    """)
+    return
+
+
+@app.cell
+def _(mo):
     n_knots_slider = mo.ui.slider(start=2, stop=10, step=1, value=4, label="Number of Knots")
     knots_dropdown = mo.ui.dropdown(options=["uniform", "quantile"], value="uniform", label="Knots")
     mo.hstack([n_knots_slider, knots_dropdown])
@@ -259,6 +293,10 @@ def _(
 def _(mo):
     mo.md("""
     ## Spline Basis Functions
+
+    You can pre-process in a lot of different ways though. So what did we do here?
+
+    So I could learn has a spline transformer that effectively lets you cut up the input space into "continuous bins". The plots below give a pretty good impression of how this space is generated. We can easily turn one axis into many features.
     """)
     return
 
@@ -309,7 +347,75 @@ def _(SplineTransformer, X, np, plt, viz_knots_dropdown, viz_n_knots_slider):
     axes_basis[1].set_ylabel("Basis value")
 
     plt.tight_layout()
+    return fig_basis, x_basis, x_range, y_basis, y_range
+
+
+@app.cell
+def _(fig_basis):
     fig_basis
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 2D Basis Intersection
+
+    When you apply the spline transformer on two different axes, you effectively have a way to chunk up the dataset. The sliders below let you select different regions based on the hill from the spline transformer on both the x and y direction.
+    """)
+    return
+
+
+@app.cell
+def _(mo, x_basis, y_basis):
+    n_x_basis = x_basis.shape[1]
+    n_y_basis = y_basis.shape[1]
+    x_basis_slider = mo.ui.slider(
+        start=0, stop=n_x_basis - 1, step=1, value=0, label="X Basis Index"
+    )
+    y_basis_slider = mo.ui.slider(
+        start=0, stop=n_y_basis - 1, step=1, value=0, label="Y Basis Index"
+    )
+    mo.hstack([x_basis_slider, y_basis_slider])
+    return x_basis_slider, y_basis_slider
+
+
+@app.cell
+def _(
+    X,
+    colors,
+    np,
+    plt,
+    x_basis,
+    x_basis_slider,
+    x_range,
+    y_basis,
+    y_basis_slider,
+    y_range,
+):
+    # Get selected basis functions
+    x_b = x_basis[:, x_basis_slider.value]
+    y_b = y_basis[:, y_basis_slider.value]
+
+    # Compute outer product to get 2D intersection
+    intersection = np.outer(y_b, x_b)
+
+    fig_2d, ax_2d = plt.subplots(figsize=(8, 6))
+    im = ax_2d.imshow(
+        intersection,
+        extent=[x_range.min(), x_range.max(), y_range.min(), y_range.max()],
+        origin="lower",
+        aspect="auto",
+        cmap="viridis",
+        alpha=0.7,
+    )
+    ax_2d.scatter(X[:, 0], X[:, 1], c=colors, edgecolors="black", s=50, zorder=5)
+    ax_2d.set_title(f"Basis Product: X[{x_basis_slider.value}] × Y[{y_basis_slider.value}]")
+    ax_2d.set_xlabel("Feature 1")
+    ax_2d.set_ylabel("Feature 2")
+    plt.colorbar(im, ax=ax_2d, label="Basis value")
+    plt.tight_layout()
+    fig_2d
     return
 
 
