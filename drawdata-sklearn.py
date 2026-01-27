@@ -26,25 +26,17 @@ def _():
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import LabelEncoder, SplineTransformer
     from sklearn.pipeline import make_pipeline
-    from sklearn.datasets import make_blobs
     return (
         LabelEncoder,
         LogisticRegression,
         ScatterWidget,
         SplineTransformer,
-        make_blobs,
         make_pipeline,
         mo,
         np,
         plt,
         train_test_split,
     )
-
-
-@app.cell
-def _(mo):
-    is_script_mode = mo.app_meta().mode == "script"
-    return (is_script_mode,)
 
 
 @app.cell(hide_code=True)
@@ -92,22 +84,15 @@ def _(fig):
 
 
 @app.cell
-def _(LabelEncoder, is_script_mode, make_blobs, mo, np, scatter_widget):
-    if is_script_mode:
-        X, y = make_blobs(n_samples=200, centers=2, random_state=42)
-        X = X.astype(np.float32)
-        # Default colors for script mode
-        colors = np.array(["#1f77b4" if yi == 0 else "#ff7f0e" for yi in y])
-        label_to_color = {0: "#1f77b4", 1: "#ff7f0e"}
-    else:
-        df = scatter_widget.widget.data_as_polars
-        mo.stop(len(df) == 0, mo.md("Draw some data points to get started."))
-        X = df.select(["x", "y"]).to_numpy().astype(np.float32)
-        colors = df["color"].to_numpy()
-        # Encode labels and build label->color mapping
-        le = LabelEncoder()
-        y = le.fit_transform(colors)
-        label_to_color = {i: c for i, c in enumerate(le.classes_)}
+def _(LabelEncoder, mo, scatter_widget):
+    df = scatter_widget.widget.data_as_polars
+    mo.stop(len(df) == 0, mo.md("Draw some data points to get started."))
+    X = df.select(["x", "y"]).to_numpy().astype("float32")
+    colors = df["color"].to_numpy()
+    # Encode labels and build label->color mapping
+    le = LabelEncoder()
+    y = le.fit_transform(colors)
+    label_to_color = {i: c for i, c in enumerate(le.classes_)}
     return X, colors, label_to_color, y
 
 
@@ -193,7 +178,7 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    n_knots_slider = mo.ui.slider(start=2, stop=10, step=1, value=4, label="Number of Knots")
+    n_knots_slider = mo.ui.slider(start=2, stop=20, step=1, value=4, label="Number of Knots")
     knots_dropdown = mo.ui.dropdown(options=["uniform", "quantile"], value="uniform", label="Knots")
     mo.hstack([n_knots_slider, knots_dropdown])
     return knots_dropdown, n_knots_slider
@@ -312,9 +297,7 @@ def _(mo):
 
 
 @app.cell
-def _(SplineTransformer, X, np, plt, viz_knots_dropdown, viz_n_knots_slider):
-    fig_basis, axes_basis = plt.subplots(1, 2, figsize=(12, 4))
-
+def _(SplineTransformer, X, np, viz_knots_dropdown, viz_n_knots_slider):
     # Get x and y ranges from the data
     x_vals = X[:, 0]
     y_vals = X[:, 1]
@@ -324,46 +307,16 @@ def _(SplineTransformer, X, np, plt, viz_knots_dropdown, viz_n_knots_slider):
         n_knots=viz_n_knots_slider.value, degree=3, knots=viz_knots_dropdown.value
     )
 
-    # Plot spline basis for x-axis
+    # Compute spline basis for x-axis
     x_range = np.linspace(x_vals.min(), x_vals.max(), 200).reshape(-1, 1)
     spline_viz.fit(x_vals.reshape(-1, 1))
     x_basis = spline_viz.transform(x_range)
-    for i in range(x_basis.shape[1]):
-        axes_basis[0].plot(x_range, x_basis[:, i], alpha=0.7)
-    axes_basis[0].vlines(x_vals, ymin=-0.05, ymax=0.05, color="black", alpha=0.3, zorder=5)
-    axes_basis[0].set_title(f"Spline Basis (Feature 1 / x-axis)")
-    axes_basis[0].set_xlabel("Feature 1")
-    axes_basis[0].set_ylabel("Basis value")
 
-    # Plot spline basis for y-axis
+    # Compute spline basis for y-axis
     y_range = np.linspace(y_vals.min(), y_vals.max(), 200).reshape(-1, 1)
     spline_viz.fit(y_vals.reshape(-1, 1))
     y_basis = spline_viz.transform(y_range)
-    for i in range(y_basis.shape[1]):
-        axes_basis[1].plot(y_range, y_basis[:, i], alpha=0.7)
-    axes_basis[1].vlines(y_vals, ymin=-0.05, ymax=0.05, color="black", alpha=0.3, zorder=5)
-    axes_basis[1].set_title(f"Spline Basis (Feature 2 / y-axis)")
-    axes_basis[1].set_xlabel("Feature 2")
-    axes_basis[1].set_ylabel("Basis value")
-
-    plt.tight_layout()
-    return fig_basis, x_basis, x_range, y_basis, y_range
-
-
-@app.cell
-def _(fig_basis):
-    fig_basis
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md("""
-    ## 2D Basis Intersection
-
-    When you apply the spline transformer on two different axes, you effectively have a way to chunk up the dataset. The sliders below let you select different regions based on the hill from the spline transformer on both the x and y direction.
-    """)
-    return
+    return x_basis, x_range, x_vals, y_basis, y_range, y_vals
 
 
 @app.cell
@@ -389,33 +342,62 @@ def _(
     x_basis,
     x_basis_slider,
     x_range,
+    x_vals,
     y_basis,
     y_basis_slider,
     y_range,
+    y_vals,
 ):
-    # Get selected basis functions
-    x_b = x_basis[:, x_basis_slider.value]
-    y_b = y_basis[:, y_basis_slider.value]
+    fig_basis, _axes = plt.subplots(1, 3, figsize=(15, 4))
 
-    # Compute outer product to get 2D intersection
-    intersection = np.outer(y_b, x_b)
+    # Plot spline basis for x-axis with highlighting
+    for _i in range(x_basis.shape[1]):
+        _is_selected = _i == x_basis_slider.value
+        _linewidth = 3 if _is_selected else 1
+        _alpha = 1.0 if _is_selected else 0.5
+        _axes[0].plot(
+            x_range, x_basis[:, _i], color="steelblue", alpha=_alpha, linewidth=_linewidth
+        )
+    for _x, _c in zip(x_vals, colors):
+        _axes[0].vlines(_x, ymin=-0.05, ymax=0.05, color=_c, alpha=0.5, zorder=5)
+    _axes[0].set_title(f"Spline Basis (Feature 1 / x-axis)")
+    _axes[0].set_xlabel("Feature 1")
+    _axes[0].set_ylabel("Basis value")
 
-    fig_2d, ax_2d = plt.subplots(figsize=(8, 6))
-    im = ax_2d.imshow(
-        intersection,
+    # Plot spline basis for y-axis with highlighting
+    for _i in range(y_basis.shape[1]):
+        _is_selected = _i == y_basis_slider.value
+        _linewidth = 3 if _is_selected else 1
+        _alpha = 1.0 if _is_selected else 0.5
+        _axes[1].plot(
+            y_range, y_basis[:, _i], color="steelblue", alpha=_alpha, linewidth=_linewidth
+        )
+    for _y, _c in zip(y_vals, colors):
+        _axes[1].vlines(_y, ymin=-0.05, ymax=0.05, color=_c, alpha=0.5, zorder=5)
+    _axes[1].set_title(f"Spline Basis (Feature 2 / y-axis)")
+    _axes[1].set_xlabel("Feature 2")
+    _axes[1].set_ylabel("Basis value")
+
+    # Plot 2D basis intersection
+    _x_b = x_basis[:, x_basis_slider.value]
+    _y_b = y_basis[:, y_basis_slider.value]
+    _intersection = np.outer(_y_b, _x_b)
+    _im = _axes[2].imshow(
+        _intersection,
         extent=[x_range.min(), x_range.max(), y_range.min(), y_range.max()],
         origin="lower",
         aspect="auto",
         cmap="viridis",
         alpha=0.7,
     )
-    ax_2d.scatter(X[:, 0], X[:, 1], c=colors, edgecolors="black", s=50, zorder=5)
-    ax_2d.set_title(f"Basis Product: X[{x_basis_slider.value}] × Y[{y_basis_slider.value}]")
-    ax_2d.set_xlabel("Feature 1")
-    ax_2d.set_ylabel("Feature 2")
-    plt.colorbar(im, ax=ax_2d, label="Basis value")
+    _axes[2].scatter(X[:, 0], X[:, 1], c=colors, edgecolors="black", s=50, zorder=5)
+    _axes[2].set_title(f"Basis Product: X[{x_basis_slider.value}] × Y[{y_basis_slider.value}]")
+    _axes[2].set_xlabel("Feature 1")
+    _axes[2].set_ylabel("Feature 2")
+    plt.colorbar(_im, ax=_axes[2], label="Basis value")
+
     plt.tight_layout()
-    fig_2d
+    fig_basis
     return
 
 
