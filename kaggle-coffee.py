@@ -41,26 +41,35 @@ def _(Item, Order):
 
 @app.cell
 def _():
+    import os 
     from dotenv import load_dotenv
 
     load_dotenv(".env");
-    return
+    return (os,)
 
 
 @app.cell
-async def _(Order):
+async def _(Order, os):
     from pydantic_ai import Agent
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.ollama import OllamaProvider
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    ollama_model = OpenAIChatModel(
-        model_name='kimi-k2.5:cloud',
-        provider=OllamaProvider(base_url='http://localhost:11434/v1'),  
+    wandb_provider = OpenAIProvider(
+        base_url="https://api.inference.wandb.ai/v1",
+        api_key=os.environ.get("WANDB_OPENAI_API_KEY")
     )
 
+    ollama_provider = OllamaProvider(base_url='http://localhost:11434/v1')
+
+    model = OpenAIChatModel(
+        model_name='gpt-oss:20b-cloud',
+        provider=ollama_provider,  
+    )
+
+
     agent = Agent(
-        ollama_model, 
+        model, 
         output_type=Order
     )
 
