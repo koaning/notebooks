@@ -1,0 +1,3 @@
+{
+    "setup": "ln -s '$CONDUCTOR_ROOT_PATH/.env' .env"
+}
