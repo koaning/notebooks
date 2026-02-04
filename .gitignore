@@ -2,3 +2,5 @@
 media/
 slides/
 __pycache__/
+
+.env
