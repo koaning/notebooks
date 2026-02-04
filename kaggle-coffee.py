@@ -63,8 +63,8 @@ async def _(Order, os):
     ollama_provider = OllamaProvider(base_url='http://localhost:11434/v1')
 
     model = OpenAIChatModel(
-        model_name='gpt-oss:20b-cloud',
-        provider=ollama_provider,  
+        model_name="openai/gpt-oss-20b",
+        provider=wandb_provider,  
     )
 
 
