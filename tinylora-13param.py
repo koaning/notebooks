@@ -488,8 +488,7 @@ def _(
     torch,
     train_norms_switch,
 ):
-    mo.status.spinner("Loading model and tokenizer...")
-
+    import os
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     _model_name = "Qwen/Qwen2.5-7B-Instruct"
@@ -503,18 +502,23 @@ def _(
             mlp_rank=mlp_rank_slider.value,
             train_layernorms=train_norms_switch.value,
         )
-        hook_handles = []
     else:
-        tokenizer = AutoTokenizer.from_pretrained(_model_name)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = "left"
+        from huggingface_hub import snapshot_download
 
-        model = AutoModelForCausalLM.from_pretrained(
-            _model_name,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-        )
+        with mo.status.spinner(f"Downloading {_model_name} (skip if cached)..."):
+            snapshot_download(_model_name)
+
+        with mo.status.spinner(f"Loading {_model_name} into memory..."):
+            tokenizer = AutoTokenizer.from_pretrained(_model_name)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            tokenizer.padding_side = "left"
+
+            model = AutoModelForCausalLM.from_pretrained(
+                _model_name,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+            )
 
         controller = TinyLoRAController(
             attn_rank=attn_rank_slider.value,
