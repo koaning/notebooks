@@ -5,6 +5,7 @@
 #     "torch",
 #     "transformers",
 #     "trl",
+#     "ipython==9.10.0",
 #     "datasets",
 #     "matplotlib",
 #     "numpy",
@@ -223,11 +224,15 @@ def _(mo):
     group_size_slider = mo.ui.slider(
         start=2, stop=16, step=2, value=8, label="GRPO group size"
     )
+    max_tokens_slider = mo.ui.slider(
+        start=64, stop=2048, step=64, value=512, label="Max completion tokens"
+    )
     train_button = mo.ui.run_button(label="Train")
     return (
         attn_rank_slider,
         group_size_slider,
         lr_slider,
+        max_tokens_slider,
         mlp_rank_slider,
         num_steps_slider,
         task_selector,
@@ -237,10 +242,18 @@ def _(mo):
 
 
 @app.cell
+def _():
+    import ipython
+
+    return
+
+
+@app.cell
 def _(
     attn_rank_slider,
     group_size_slider,
     lr_slider,
+    max_tokens_slider,
     mlp_rank_slider,
     mo,
     num_steps_slider,
@@ -261,7 +274,8 @@ def _(
         mo.md(f"**Total trainable parameters: {_total}** ({_total * 2} bytes in bf16)"),
         mo.hstack([num_steps_slider, lr_slider], justify="start", gap=1),
         mo.md(f"Learning rate: `{_lr_display:.2e}`"),
-        mo.hstack([group_size_slider, train_button], justify="start", gap=1),
+        mo.hstack([group_size_slider, max_tokens_slider], justify="start", gap=1),
+        train_button,
     ])
     return
 
@@ -387,6 +401,7 @@ def _(
     is_script_mode,
     load_gsm8k,
     selected_task,
+    system_prompt,
 ):
     from datasets import Dataset
 
@@ -402,8 +417,20 @@ def _(
         _train_list = _train_list[:4]
         _test_list = _test_list[:2]
 
-    train_dataset = Dataset.from_list(_train_list)
-    test_dataset = Dataset.from_list(_test_list)
+    # Format prompts as chat messages with system prompt for trl
+    def _format_as_chat(examples):
+        return {
+            "prompt": [
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": p},
+                ]
+                for p in examples["prompt"]
+            ]
+        }
+
+    train_dataset = Dataset.from_list(_train_list).map(_format_as_chat, batched=True)
+    test_dataset = Dataset.from_list(_test_list).map(_format_as_chat, batched=True)
     return test_dataset, train_dataset
 
 
@@ -538,17 +565,18 @@ def _(
     group_size_slider,
     is_script_mode,
     lr_slider,
+    max_tokens_slider,
     mo,
     model,
     num_steps_slider,
     reward_fn,
-    system_prompt,
     tokenizer,
     train_button,
     train_dataset,
 ):
     from pathlib import Path
     import tempfile
+    import time
 
     training_log = None
 
@@ -558,24 +586,52 @@ def _(
         mo.stop(not train_button.value, mo.md("*Click **Train** to start GRPO training.*"))
 
         from trl import GRPOTrainer, GRPOConfig
+        from transformers import TrainerCallback
 
         _output_dir = Path(tempfile.mkdtemp()) / "tinylora-grpo"
         _lr = 10 ** lr_slider.value
+        _max_steps = num_steps_slider.value
+        _max_tokens = max_tokens_slider.value
 
         _config = GRPOConfig(
             output_dir=str(_output_dir),
             num_generations=group_size_slider.value,
-            max_completion_length=1024,
-            max_steps=num_steps_slider.value,
-            per_device_train_batch_size=1,
-            gradient_accumulation_steps=4,
+            max_completion_length=_max_tokens,
+            max_steps=_max_steps,
+            per_device_train_batch_size=group_size_slider.value,
+            gradient_accumulation_steps=1,
             learning_rate=_lr,
             bf16=True,
-            logging_steps=10,
+            logging_steps=1,
             save_strategy="no",
             report_to="none",
-            system_prompt=system_prompt,
         )
+
+        # Live feedback callback — appends metrics to cell output during training
+        class _MarimoProgressCallback(TrainerCallback):
+            def __init__(self):
+                self._step_start = None
+
+            def on_step_begin(self, args, state, control, **kwargs):
+                self._step_start = time.time()
+                mo.output.append(mo.md(
+                    f"`Step {state.global_step + 1}/{_max_steps} — generating {group_size_slider.value} "
+                    f"completions (max {_max_tokens} tokens each)...`"
+                ))
+
+            def on_log(self, args, state, control, logs=None, **kwargs):
+                if logs is None:
+                    return
+                _step = state.global_step
+                _elapsed = time.time() - self._step_start if self._step_start else 0
+                _reward = logs.get("reward", None)
+                _length = logs.get("completions/mean_length", None)
+                _parts = [f"Step {_step}/{_max_steps}", f"{_elapsed:.1f}s"]
+                if _reward is not None:
+                    _parts.append(f"reward: {_reward:.3f}")
+                if _length is not None:
+                    _parts.append(f"mean length: {_length:.0f}")
+                mo.output.append(mo.md(f"`{' | '.join(_parts)}`"))
 
         # Build a custom optimizer that only trains the controller parameters
         import torch as _torch
@@ -588,9 +644,12 @@ def _(
             train_dataset=train_dataset,
             processing_class=tokenizer,
             optimizers=(_optimizer, None),
+            callbacks=[_MarimoProgressCallback()],
         )
 
+        mo.output.append(mo.md(f"**Training started** — {_max_steps} steps, lr={_lr:.2e}"))
         _trainer.train()
+        mo.output.append(mo.md("**Training complete!**"))
         training_log = _trainer.state.log_history
     return (training_log,)
 
