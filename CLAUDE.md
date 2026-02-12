@@ -153,11 +153,23 @@ def _(mo, condition):
 
 ## Marimo Variable Naming
 
-Variables in `for` loops that would conflict across cells need underscore prefix:
+The `_` prefix in marimo makes variables cell-private (they can't be exported to other cells). **Only use it for loop variables** that would conflict across cells:
 
 ```python
-# Use _name, _model to make them cell-private
+# GOOD - loop variables that would clash across cells
 for _name, _model in items:
+    ...
+```
+
+Don't use `_` prefix for helper functions — even if they're only used in one cell right now, keeping them exportable means they can be reused later:
+
+```python
+# BAD - unnecessarily private, can't be reused
+def _subsample(X, y, max_samples):
+    ...
+
+# GOOD - available for other cells to import
+def subsample(X, y, max_samples):
     ...
 ```
 
