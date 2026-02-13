@@ -126,7 +126,7 @@ def _(is_script_mode, mo, model_params):
     group_size_slider = mo.ui.slider(
         value=model_params.group_size,
         start=2,
-        stop=32,
+        stop=max(64, model_params.group_size),
         step=2,
         label="Group Size",
     )
