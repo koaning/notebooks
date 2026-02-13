@@ -266,11 +266,15 @@ def _(config, env_config, is_script_mode, wandb):
 
     import os
 
+    import torch as _torch
+
     wandb_config = config.model_dump()
     # Try common env vars for HF Job ID
     hf_job_id = os.environ.get("HF_JOB_ID") or os.environ.get("HOSTNAME")
     if hf_job_id:
         wandb_config["hf_job_id"] = hf_job_id
+    if _torch.cuda.is_available():
+        wandb_config["gpu"] = _torch.cuda.get_device_name(0)
 
     wandb_run = wandb.init(
         project=config.wandb_project,

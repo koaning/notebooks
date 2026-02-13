@@ -48,18 +48,6 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
-    group_size_slider = mo.ui.slider(
-        start=4, stop=64, step=4, value=16, label="Group size (G)"
-    )
-    n_repeats_slider = mo.ui.slider(
-        start=100, stop=2000, step=100, value=500, label="Monte Carlo repeats"
-    )
-    mo.hstack([group_size_slider, n_repeats_slider])
-    return group_size_slider, n_repeats_slider
-
-
-@app.cell
 def _(np):
     def maxrl_advantages(rewards):
         """(r - mu) / mu"""
@@ -149,6 +137,18 @@ def _(group_size_slider, n_repeats_slider, np, run_simulation):
 
     sim = run_simulation(G, n_repeats, probabilities)
     return G, n_repeats, sim
+
+
+@app.cell
+def _(mo):
+    group_size_slider = mo.ui.slider(
+        start=4, stop=64, step=4, value=16, label="Group size (G)"
+    )
+    n_repeats_slider = mo.ui.slider(
+        start=100, stop=2000, step=100, value=500, label="Monte Carlo repeats"
+    )
+    mo.hstack([group_size_slider, n_repeats_slider])
+    return group_size_slider, n_repeats_slider
 
 
 @app.cell
