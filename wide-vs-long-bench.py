@@ -1,19 +1,19 @@
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.12,<3.14"
 # dependencies = [
 #     "marimo",
 #     "duckdb",
-#     "pandas",
 #     "polars==1.37.1",
 #     "pyarrow",
 #     "numpy",
 #     "altair",
+#     "pandas==3.0.0",
 # ]
 # ///
 
 import marimo
 
-__generated_with = "0.19.7"
+__generated_with = "0.19.11"
 app = marimo.App(width="medium")
 
 
@@ -21,17 +21,14 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     import duckdb
-    import pandas as pd
     import polars as pl
-    import pyarrow as pa
-    import pyarrow.parquet as pq
     import numpy as np
     import altair as alt
     import tempfile
     import time
-    import shutil
     from pathlib import Path
-    return Path, alt, duckdb, mo, np, pd, pl, tempfile, time
+
+    return Path, alt, duckdb, mo, np, pl, tempfile, time
 
 
 @app.cell
@@ -112,19 +109,19 @@ def _(mo, n_months, n_rpis, n_sensors, n_timestamps):
 
 
 @app.cell(hide_code=True)
-def _(np, pd, pl):
+def _(np, pl):
     def generate_data(n_rpis, n_sensors, n_timestamps, seed=42):
-        """Generate simulated sensor data with varied types (vectorized)."""
+        """Generate simulated sensor data with explicit physical dtypes."""
         rng = np.random.default_rng(seed)
         n_rows = n_rpis * n_timestamps
 
         # Generate timestamps - tile for each RPI
-        base_time = pd.Timestamp("2024-01-01")
-        timestamps = pd.date_range(base_time, periods=n_timestamps, freq="15s")
+        base_time = np.datetime64("2024-01-01T00:00:00")
+        timestamps = (base_time + np.arange(n_timestamps) * np.timedelta64(1, "m")).astype("datetime64[us]")
         all_timestamps = np.tile(timestamps, n_rpis)
 
         # Generate rpi_ids - repeat each RPI for all timestamps
-        rpi_ids = np.repeat([f"rpi_{i}" for i in range(n_rpis)], n_timestamps)
+        rpi_ids = np.repeat(np.array([f"rpi_{i}" for i in range(n_rpis)]), n_timestamps)
 
         # RPI offsets for device variation (broadcast across timestamps)
         rpi_offsets = np.repeat(np.arange(n_rpis) * 0.1, n_timestamps)
@@ -141,33 +138,38 @@ def _(np, pd, pl):
                 # Large float sensor (10k-30k range)
                 base = 20000 + i * 500
                 noise_scale = 2000
-                values = base * (1 + rpi_offsets) + rng.normal(0, noise_scale, n_rows)
+                values = (base * (1 + rpi_offsets) + rng.normal(0, noise_scale, n_rows)).astype(np.float32)
             else:
                 # Small float sensor
                 base = 20 + i
                 noise_scale = 2
-                values = base * (1 + rpi_offsets) + rng.normal(0, noise_scale, n_rows)
+                values = (base * (1 + rpi_offsets) + rng.normal(0, noise_scale, n_rows)).astype(np.float32)
             sensor_data[f"sensor_{i}"] = values
 
-        # Build wide DataFrame
-        wide_df = pd.DataFrame({
+        # Build wide DataFrame in Polars
+        wide_df = pl.DataFrame({
             "timestamp": all_timestamps,
             "rpi_id": rpi_ids,
             **sensor_data
-        })
+        }).with_columns([
+            pl.col("timestamp").cast(pl.Datetime("us")),
+            pl.col("rpi_id").cast(pl.Categorical),
+        ])
 
-        # Use polars for fast melt
+        # Unpivot to long and enforce compact ID/value types
         sensor_cols = [f"sensor_{i}" for i in range(n_sensors)]
-        wide_pl = pl.from_pandas(wide_df)
-        long_pl = wide_pl.unpivot(
+        long_df = wide_df.unpivot(
             index=["timestamp", "rpi_id"],
             on=sensor_cols,
             variable_name="sensor_id",
             value_name="value"
-        )
-        long_df = long_pl.to_pandas()
+        ).with_columns([
+            pl.col("sensor_id").cast(pl.Categorical),
+            pl.col("value").cast(pl.Float32),
+        ])
 
         return wide_df, long_df
+
     return (generate_data,)
 
 
@@ -195,45 +197,52 @@ def _(long_df, mo, wide_df):
 
 
 @app.cell(hide_code=True)
-def _(Path, duckdb, long_df, pd, tempfile, wide_df):
+def _(Path, duckdb, long_df, pl, tempfile, wide_df):
     # Create temp directory for parquet files
     temp_dir = Path(tempfile.mkdtemp(prefix="bench_"))
 
-    # Add date column for date partitioning
-    wide_with_date = wide_df.copy()
-    wide_with_date["date"] = pd.to_datetime(wide_with_date["timestamp"]).dt.date.astype(str)
+    # Add date column with physical DATE type (date32 in Parquet)
+    wide_with_date = wide_df.with_columns(
+        pl.col("timestamp").dt.date().alias("date")
+    )
 
-    long_with_date = long_df.copy()
-    long_with_date["date"] = pd.to_datetime(long_with_date["timestamp"]).dt.date.astype(str)
+    long_with_date = long_df.with_columns(
+        pl.col("timestamp").dt.date().alias("date")
+    )
 
     # Setup DuckDB connection
     con = duckdb.connect(":memory:")
 
-    # Register DataFrames as DuckDB tables
-    con.register("wide_table", wide_with_date)
-    con.register("long_table", long_with_date)
-
     # Write Parquet files (no partitioning)
     wide_parquet = temp_dir / "wide.parquet"
     long_parquet = temp_dir / "long.parquet"
-    wide_with_date.to_parquet(wide_parquet)
-    long_with_date.to_parquet(long_parquet)
+    wide_with_date.write_parquet(wide_parquet, compression="zstd", statistics=True)
+    long_with_date.write_parquet(long_parquet, compression="zstd", statistics=True)
+
+    def write_partitioned(df, path, partition_cols):
+        df.write_parquet(
+            path,
+            use_pyarrow=True,
+            compression="zstd",
+            statistics=True,
+            pyarrow_options={"partition_cols": partition_cols},
+        )
 
     # Partitioned by rpi_id
     wide_by_rpi = temp_dir / "wide_by_rpi"
     long_by_rpi = temp_dir / "long_by_rpi"
-    wide_with_date.to_parquet(wide_by_rpi, partition_cols=["rpi_id"])
-    long_with_date.to_parquet(long_by_rpi, partition_cols=["rpi_id"])
+    write_partitioned(wide_with_date, wide_by_rpi, ["rpi_id"])
+    write_partitioned(long_with_date, long_by_rpi, ["rpi_id"])
 
     # Partitioned by date
     wide_by_date = temp_dir / "wide_by_date"
     long_by_date = temp_dir / "long_by_date"
-    wide_with_date.to_parquet(wide_by_date, partition_cols=["date"])
-    long_with_date.to_parquet(long_by_date, partition_cols=["date"])
+    write_partitioned(wide_with_date, wide_by_date, ["date"])
+    write_partitioned(long_with_date, long_by_date, ["date"])
 
     # Long format partitioned by sensor_id
     long_by_sensor = temp_dir / "long_by_sensor"
-    long_with_date.to_parquet(long_by_sensor, partition_cols=["sensor_id"])
+    write_partitioned(long_with_date, long_by_sensor, ["sensor_id"])
 
     # Calculate file sizes
     def get_dir_size(path):
@@ -265,7 +274,7 @@ def _(Path, duckdb, long_df, pd, tempfile, wide_df):
 
 
 @app.cell(hide_code=True)
-def _(mo, pd, storage_sizes):
+def _(mo, n_rpis, n_sensors, n_timestamps, pl, storage_sizes):
     def human_size(size_bytes):
         for unit in ["B", "KB", "MB", "GB"]:
             if abs(size_bytes) < 1024:
@@ -273,10 +282,16 @@ def _(mo, pd, storage_sizes):
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
 
-    sizes_df = pd.DataFrame([
-        {"Format": k, "Size": human_size(v)}
+    total_readings = n_rpis * n_timestamps * n_sensors
+    sizes_df = pl.DataFrame([
+        {
+            "Format": k,
+            "Size": human_size(v),
+            "Bytes": int(v),
+            "Bytes/reading": round(v / total_readings, 4),
+        }
         for k, v in storage_sizes.items()
-    ])
+    ]).sort("Bytes")
     mo.vstack([
         mo.md("## Storage Sizes"),
         sizes_df
@@ -336,7 +351,7 @@ def _(
                     "time_ms": time_query(f"""
                         SELECT timestamp, rpi_id, sensor_0
                         FROM {wide_src}
-                        WHERE date = '2024-01-01'
+                        WHERE date = DATE '2024-01-01'
                     """, n_iterations)
                 })
             results.append({
@@ -346,7 +361,7 @@ def _(
                 "time_ms": time_query(f"""
                     SELECT timestamp, rpi_id, value
                     FROM {long_src}
-                    WHERE date = '2024-01-01' AND sensor_id = 'sensor_0'
+                    WHERE date = DATE '2024-01-01' AND sensor_id = 'sensor_0'
                 """, n_iterations)
             })
 
@@ -384,8 +399,8 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(benchmark_results, pd):
-    results_df = pd.DataFrame(benchmark_results)
+def _(benchmark_results, pl):
+    results_df = pl.DataFrame(benchmark_results)
     results_df
     return (results_df,)
 
@@ -400,7 +415,7 @@ def _(mo):
 
 @app.cell
 def _(alt, results_df):
-    chart = alt.Chart(results_df).mark_bar().encode(
+    chart = alt.Chart(alt.Data(values=results_df.to_dicts())).mark_bar().encode(
         x=alt.X("query:N", title="Query Type"),
         y=alt.Y("time_ms:Q", title="Time (ms)"),
         color=alt.Color("format:N", title="Format"),
@@ -416,21 +431,29 @@ def _(alt, results_df):
 
 
 @app.cell
-def _(mo, results_df):
+def _(mo, pl, results_df):
     # Create pivot for comparison
-    pivot = results_df.pivot_table(
+    pivot = results_df.pivot(
         index=["query", "storage"],
-        columns="format",
-        values="time_ms"
-    ).reset_index()
-    pivot["wide_faster"] = pivot["wide"] < pivot["long"]
-    pivot["speedup"] = pivot["long"] / pivot["wide"]
+        on="format",
+        values="time_ms",
+        aggregate_function="first",
+    ).with_columns([
+        (pl.col("wide") < pl.col("long")).alias("wide_faster"),
+        (pl.col("long") / pl.col("wide")).alias("speedup"),
+    ])
+
+    paired = pivot.filter(
+        pl.col("wide").is_not_null() & pl.col("long").is_not_null()
+    )
+    wide_wins = paired.filter(pl.col("wide_faster")).height
+    long_wins = paired.height - wide_wins
 
     mo.md(f"""
     ## Summary
 
-    **Wide format wins:** {pivot["wide_faster"].sum()} queries
-    **Long format wins:** {(~pivot["wide_faster"]).sum()} queries
+    **Wide format wins:** {wide_wins} queries
+    **Long format wins:** {long_wins} queries
 
     **Queries tested:**
     - `date_sensor`: Filter by one date + one sensor
