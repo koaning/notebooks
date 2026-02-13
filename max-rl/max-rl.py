@@ -546,35 +546,44 @@ def _(
             if _has_any_success:
                 _advantages = compute_advantages(_rewards, method=config.advantage_method)
                 _flat_advantages = _advantages.view(-1)
+                _n_seqs = _outputs.shape[0]
+                _mini_bs = 32  # process forward pass in chunks to avoid OOM
 
-                # 6. Differentiable forward pass on generated sequences
-                _model_inputs = {
-                    "input_ids": _outputs,
-                    "attention_mask": (_outputs != tokenizer.pad_token_id).long(),
-                }
-                _full_logits = model(**_model_inputs).logits
+                # 6. Differentiable forward pass in mini-batches
+                _total_loss = torch.tensor(0.0, device=device)
+                for _mb_start in range(0, _n_seqs, _mini_bs):
+                    _mb_end = min(_mb_start + _mini_bs, _n_seqs)
+                    _mb_ids = _outputs[_mb_start:_mb_end]
+                    _mb_adv = _flat_advantages[_mb_start:_mb_end]
+                    _mb_inputs = {
+                        "input_ids": _mb_ids,
+                        "attention_mask": (_mb_ids != tokenizer.pad_token_id).long(),
+                    }
+                    _mb_logits = model(**_mb_inputs).logits
 
-                # 7. Policy gradient loss
-                _shift_logits = _full_logits[:, _prompt_len - 1:-1, :]
-                _shift_labels = _outputs[:, _prompt_len:]
-                _log_probs = torch.log_softmax(_shift_logits, dim=-1)
-                _per_token = torch.gather(
-                    _log_probs, 2, _shift_labels.unsqueeze(-1)
-                ).squeeze(-1)
-                _completion_mask = (_shift_labels != tokenizer.pad_token_id).float()
-                _seq_log_probs = (_per_token * _completion_mask).sum(dim=1)
-                _loss = -(_seq_log_probs * _flat_advantages).mean()
+                    # 7. Policy gradient loss
+                    _shift_logits = _mb_logits[:, _prompt_len - 1:-1, :]
+                    _shift_labels = _mb_ids[:, _prompt_len:]
+                    _log_probs = torch.log_softmax(_shift_logits, dim=-1)
+                    _per_token = torch.gather(
+                        _log_probs, 2, _shift_labels.unsqueeze(-1)
+                    ).squeeze(-1)
+                    _completion_mask = (_shift_labels != tokenizer.pad_token_id).float()
+                    _seq_log_probs = (_per_token * _completion_mask).sum(dim=1)
+                    _mb_loss = -(_seq_log_probs * _mb_adv).sum() / _n_seqs
+                    _mb_loss.backward()
+                    _total_loss += _mb_loss.detach()
+                    del _mb_logits, _mb_loss
 
-                _loss.backward()
                 _grad_norm = torch.nn.utils.clip_grad_norm_(
                     filter(lambda p: p.requires_grad, model.parameters()), 1.0
                 )
                 optimizer.step()
 
-                _loss_val = _loss.item()
+                _loss_val = _total_loss.item()
                 _grad_norm_val = _grad_norm.item() if hasattr(_grad_norm, "item") else _grad_norm
 
-                del _full_logits, _loss
+                del _total_loss
             del _outputs
             if device == "cuda":
                 torch.cuda.empty_cache()

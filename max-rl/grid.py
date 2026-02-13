@@ -11,29 +11,33 @@ Usage: uv run grid.py
 """
 import subprocess
 
-# T-shaped grid: vary difficulty (vertical) and group size (horizontal)
-# All jobs use Qwen2.5-0.5B-Instruct, lr=1e-5
+# Easy set: low max_value, fewer elements
+# Hard set: high max_value, more elements
+# Both vary group size to test MaxRL's advantage with more rollouts
 configs = [
-    # Vertical arm: harder tasks at gs=16
-    {"advantage_method": "maxrl", "num_elements": 8,  "batch_size": 4, "group_size": 16},
-    {"advantage_method": "grpo",  "num_elements": 8,  "batch_size": 4, "group_size": 16},
-    {"advantage_method": "maxrl", "num_elements": 10, "batch_size": 4, "group_size": 16},
-    {"advantage_method": "grpo",  "num_elements": 10, "batch_size": 4, "group_size": 16},
-    # Horizontal arm: bigger group sizes at n=10
-    {"advantage_method": "maxrl", "num_elements": 10, "batch_size": 4, "group_size": 32},
-    {"advantage_method": "grpo",  "num_elements": 10, "batch_size": 4, "group_size": 32},
-    {"advantage_method": "maxrl", "num_elements": 10, "batch_size": 4, "group_size": 64},
-    {"advantage_method": "grpo",  "num_elements": 10, "batch_size": 4, "group_size": 64},
-    # n=12 arm: extreme difficulty
-    {"advantage_method": "maxrl", "num_elements": 12, "batch_size": 4, "group_size": 32},
-    {"advantage_method": "grpo",  "num_elements": 12, "batch_size": 4, "group_size": 32},
+    # Easy: n=5, max_value=20
+    {"advantage_method": "maxrl", "num_elements": 5,  "max_value": 20, "batch_size": 4, "group_size": 16},
+    {"advantage_method": "grpo",  "num_elements": 5,  "max_value": 20, "batch_size": 4, "group_size": 16},
+    {"advantage_method": "maxrl", "num_elements": 5,  "max_value": 20, "batch_size": 4, "group_size": 32},
+    {"advantage_method": "grpo",  "num_elements": 5,  "max_value": 20, "batch_size": 4, "group_size": 32},
+    {"advantage_method": "maxrl", "num_elements": 5,  "max_value": 20, "batch_size": 4, "group_size": 64},
+    {"advantage_method": "grpo",  "num_elements": 5,  "max_value": 20, "batch_size": 4, "group_size": 64},
+    # Hard: n=10, max_value=50
+    {"advantage_method": "maxrl", "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 16},
+    {"advantage_method": "grpo",  "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 16},
+    {"advantage_method": "maxrl", "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 32},
+    {"advantage_method": "grpo",  "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 32},
+    {"advantage_method": "maxrl", "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 64},
+    {"advantage_method": "grpo",  "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 64},
+    {"advantage_method": "maxrl", "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 128},
+    {"advantage_method": "grpo",  "num_elements": 10, "max_value": 50, "batch_size": 4, "group_size": 128},
 ]
 
 # Fixed params for all runs
 model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+wandb_project = "maxrl-subset-sum-v2"
 fixed = {
     "epochs": 20,
-    "max_value": 50,
     "learning_rate": 1e-5,
 }
 
@@ -41,13 +45,13 @@ fixed = {
 def submit_job(params):
     """Submit a single HF job with given params."""
     model_short = model_id.split("/")[-1].replace("-Instruct", "")
-    run_name = f"{model_short}-{params['advantage_method']}-n{params['num_elements']}-bs{params['batch_size']}-gs{params['group_size']}"
+    run_name = (
+        f"{model_short}-{params['advantage_method']}"
+        f"-n{params['num_elements']}-mv{params['max_value']}"
+        f"-bs{params['batch_size']}-gs{params['group_size']}"
+    )
 
-    # Use A100 for large group sizes or 3B models
-    if "3B" in model_id or params["group_size"] >= 32:
-        flavor = "a100-large"
-    else:
-        flavor = "a10g-small"
+    flavor = "a100-large"
 
     cmd = [
         "hf", "jobs", "uv", "run",
@@ -61,10 +65,11 @@ def submit_job(params):
         "--advantage-method", params["advantage_method"],
         "--learning-rate", str(fixed["learning_rate"]),
         "--num-elements", str(params["num_elements"]),
+        "--max-value", str(params["max_value"]),
         "--batch-size", str(params["batch_size"]),
         "--group-size", str(params["group_size"]),
         "--epochs", str(fixed["epochs"]),
-        "--max-value", str(fixed["max_value"]),
+        "--wandb-project", wandb_project,
         "--wandb-run-name", run_name,
     ]
 
@@ -82,6 +87,7 @@ def submit_job(params):
 def main():
     print(f"Submitting {len(configs)} jobs...")
     print(f"Model: {model_id}")
+    print(f"W&B project: {wandb_project}")
     print(f"Fixed: {fixed}\n")
 
     job_ids = []
