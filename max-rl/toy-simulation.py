@@ -133,7 +133,7 @@ def _(mo):
 def _(group_size_slider, n_repeats_slider, np, run_simulation):
     G = group_size_slider.value
     n_repeats = n_repeats_slider.value
-    probabilities = np.linspace(0.02, 0.98, 50)
+    probabilities = np.linspace(0.02, 0.98, 100)
 
     sim = run_simulation(G, n_repeats, probabilities)
     return G, n_repeats, sim
@@ -142,7 +142,7 @@ def _(group_size_slider, n_repeats_slider, np, run_simulation):
 @app.cell
 def _(mo):
     group_size_slider = mo.ui.slider(
-        start=4, stop=64, step=4, value=16, label="Group size (G)"
+        start=1, stop=64, step=1, value=16, label="Group size (G)"
     )
     n_repeats_slider = mo.ui.slider(
         start=100, stop=2000, step=100, value=500, label="Monte Carlo repeats"
@@ -187,21 +187,25 @@ def _(mo):
 @app.cell
 def _(mo):
     lr_slider = mo.ui.slider(
-        start=0.1, stop=5.0, step=0.1, value=1.0, label="Learning rate"
+        start=0.1, stop=1.0, step=0.01, value=0.2, label="Learning rate"
     )
     init_theta_slider = mo.ui.slider(
-        start=-5.0, stop=-1.0, step=0.5, value=-3.0, label="Initial theta (lower = harder start)"
+        start=-5.0, stop=-1.0, step=0.01, value=-3.0, label="Initial theta (lower = harder start)"
+    )
+    difficulty_slider = mo.ui.slider(
+        start=0.5, stop=3, step=0.01, value=1.0, label="Difficulty (higher = harder)"
     )
     n_steps_slider = mo.ui.slider(
-        start=50, stop=500, step=50, value=200, label="Training steps"
+        start=50, stop=1000, step=50, value=1000, label="Training steps"
     )
-    mo.hstack([lr_slider, init_theta_slider, n_steps_slider])
-    return init_theta_slider, lr_slider, n_steps_slider
+    [lr_slider, init_theta_slider, difficulty_slider, n_steps_slider]
+    return difficulty_slider, init_theta_slider, lr_slider, n_steps_slider
 
 
 @app.cell(hide_code=True)
 def _(
     G,
+    difficulty_slider,
     grpo_advantages,
     init_theta_slider,
     lr_slider,
@@ -212,7 +216,7 @@ def _(
     def sigmoid(x):
         return 1 / (1 + np.exp(-np.clip(x, -20, 20)))
 
-    def run_training(method_fn, lr, init_theta, n_steps, group_size, seed=42):
+    def run_training(method_fn, lr, init_theta, n_steps, group_size, seed=42, difficulty=1):
         rng = np.random.default_rng(seed)
         theta = init_theta
         history = {"p": [], "theta": []}
@@ -223,7 +227,7 @@ def _(
             history["theta"].append(theta)
 
             # Sample G binary rollouts
-            rewards = rng.random((1, group_size)) < p
+            rewards = rng.random((1, group_size)) < p/difficulty
             rewards = rewards.astype(np.float32)
 
             # Skip update if no successes (no signal)
@@ -244,12 +248,12 @@ def _(
     init_theta_val = init_theta_slider.value
     n_steps_val = n_steps_slider.value
 
-    hist_maxrl = run_training(maxrl_advantages, lr_val, init_theta_val, n_steps_val, G)
-    hist_grpo = run_training(grpo_advantages, lr_val, init_theta_val, n_steps_val, G)
+    hist_maxrl = run_training(maxrl_advantages, lr_val, init_theta_val, n_steps_val, G, difficulty=difficulty_slider.value)
+    hist_grpo = run_training(grpo_advantages, lr_val, init_theta_val, n_steps_val, G, difficulty=difficulty_slider.value)
     return hist_grpo, hist_maxrl, init_theta_val, lr_val
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(G, hist_grpo, hist_maxrl, init_theta_val, lr_val, np, plt):
     fig_train, (ax_p, ax_theta) = plt.subplots(1, 2, figsize=(12, 4))
 

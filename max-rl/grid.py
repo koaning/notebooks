@@ -14,17 +14,17 @@ import subprocess
 # T-shaped grid: vary difficulty (vertical) and group size (horizontal)
 # All jobs use Qwen2.5-0.5B-Instruct, lr=1e-5
 configs = [
-    # Vertical arm: vary difficulty at gs=16
+    # Vertical arm: harder tasks at gs=16
     {"advantage_method": "maxrl", "num_elements": 8,  "batch_size": 4, "group_size": 16},
     {"advantage_method": "grpo",  "num_elements": 8,  "batch_size": 4, "group_size": 16},
     {"advantage_method": "maxrl", "num_elements": 10, "batch_size": 4, "group_size": 16},
     {"advantage_method": "grpo",  "num_elements": 10, "batch_size": 4, "group_size": 16},
-    # Horizontal arm: vary group size at n=10
+    # Horizontal arm: bigger group sizes at n=10
     {"advantage_method": "maxrl", "num_elements": 10, "batch_size": 4, "group_size": 32},
     {"advantage_method": "grpo",  "num_elements": 10, "batch_size": 4, "group_size": 32},
     {"advantage_method": "maxrl", "num_elements": 10, "batch_size": 4, "group_size": 64},
     {"advantage_method": "grpo",  "num_elements": 10, "batch_size": 4, "group_size": 64},
-    # n=12 at gs=32 (compensate for extreme sparsity)
+    # n=12 arm: extreme difficulty
     {"advantage_method": "maxrl", "num_elements": 12, "batch_size": 4, "group_size": 32},
     {"advantage_method": "grpo",  "num_elements": 12, "batch_size": 4, "group_size": 32},
 ]
@@ -33,7 +33,7 @@ configs = [
 model_id = "Qwen/Qwen2.5-0.5B-Instruct"
 fixed = {
     "epochs": 20,
-    "max_value": 20,
+    "max_value": 50,
     "learning_rate": 1e-5,
 }
 

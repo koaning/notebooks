@@ -4,3 +4,4 @@ slides/
 __pycache__/
 
 .env
+wandb/

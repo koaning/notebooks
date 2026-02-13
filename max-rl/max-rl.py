@@ -17,8 +17,15 @@
 
 import marimo
 
-__generated_with = "0.19.10"
+__generated_with = "0.19.11"
 app = marimo.App(width="medium")
+
+with app.setup:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from peft import LoraConfig, get_peft_model
+    import numpy as np
+    import random
 
 
 @app.cell
@@ -72,7 +79,9 @@ def _(ExperimentParams, is_script_mode, mo):
 
     start_time = time.time()
 
+    _alias_map = {"n": "num_elements", "max_val": "max_value", "job_name": "wandb_run_name"}
     cli_args = {k.replace("-", "_"): v for k, v in mo.cli_args().items()}
+    cli_args = {_alias_map.get(k, k): v for k, v in cli_args.items()}
     model_params = ExperimentParams(**cli_args)
 
     if is_script_mode:
@@ -254,7 +263,7 @@ def _():
         "WANDB_API_KEY": lambda k: wandb.login(key=k, verify=True),
     })
     env_config
-    return (env_config, wandb)
+    return env_config, wandb
 
 
 @app.cell
@@ -285,7 +294,7 @@ def _(config, env_config, is_script_mode, wandb):
 
     if is_script_mode:
         print(f"WANDB initialized: {wandb_run.url}\n")
-    return (wandb,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -312,17 +321,6 @@ def _(mo):
 
 @app.cell
 def _():
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    from peft import LoraConfig, get_peft_model
-    import numpy as np
-    import random
-
-    return AutoModelForCausalLM, AutoTokenizer, LoraConfig, get_peft_model, np, random, torch
-
-
-@app.cell
-def _(random):
     def generate_subset_sum_problem(num_elements=6, max_value=20):
         numbers = [random.randint(1, max_value) for _ in range(num_elements)]
         # Pick a random subset to guarantee at least one solution
@@ -357,15 +355,7 @@ def _(random):
 
 
 @app.cell
-def _(
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    LoraConfig,
-    config,
-    get_peft_model,
-    is_script_mode,
-    torch,
-):
+def _(config, is_script_mode):
     if torch.cuda.is_available():
         device = "cuda"
         dtype = torch.bfloat16
@@ -412,12 +402,11 @@ def _(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=config.learning_rate,
     )
-
     return device, model, optimizer, tokenizer
 
 
 @app.cell
-def _(check_answer, format_prompt, generate_subset_sum_problem, random, torch):
+def _(check_answer, format_prompt, generate_subset_sum_problem):
     def evaluate_model(model, tokenizer, device, num_elements, max_value, n_eval=50, seed=42):
         model.eval()
         _correct = 0
@@ -445,7 +434,7 @@ def _(check_answer, format_prompt, generate_subset_sum_problem, random, torch):
 
 
 @app.cell
-def _(config, device, evaluate_model, is_script_mode, model, tokenizer, wandb):
+def _(config, device, evaluate_model, model, tokenizer, wandb):
     print("Evaluating initial accuracy (before training)...")
     initial_accuracy = evaluate_model(model, tokenizer, device, config.num_elements, config.max_value)
     wandb.log({"eval/initial_accuracy": initial_accuracy, "global_step": 0})
@@ -453,37 +442,30 @@ def _(config, device, evaluate_model, is_script_mode, model, tokenizer, wandb):
     return (initial_accuracy,)
 
 
-@app.cell
-def _(torch):
-    def compute_advantages(rewards, method="maxrl"):
-        mu = rewards.mean(dim=1, keepdim=True)
-        if method == "maxrl":
-            return (rewards - mu) / (mu + 1e-8)
-        else:
-            std = rewards.std(dim=1, keepdim=True)
-            return (rewards - mu) / (std + 1e-8)
-
-    return (compute_advantages,)
+@app.function
+def compute_advantages(rewards, method="maxrl"):
+    mu = rewards.mean(dim=1, keepdim=True)
+    if method == "maxrl":
+        return (rewards - mu) / (mu + 1e-8)
+    else:
+        std = rewards.std(dim=1, keepdim=True)
+        return (rewards - mu) / (std + 1e-8)
 
 
 @app.cell
 def _(
     check_answer,
-    compute_advantages,
     config,
     device,
     evaluate_model,
     format_prompt,
     generate_subset_sum_problem,
-    initial_accuracy,
     is_script_mode,
     model,
-    np,
     optimizer,
     start_time,
     time,
     tokenizer,
-    torch,
     wandb,
 ):
     import gc
@@ -653,7 +635,6 @@ def _(
 
     _total_time = time.time() - start_time
     print(f"Training complete in {_total_time/60:.1f} minutes")
-
     return (data,)
 
 
@@ -668,7 +649,6 @@ def _(data, is_script_mode):
 @app.cell
 def _(
     config,
-    data,
     device,
     evaluate_model,
     initial_accuracy,
