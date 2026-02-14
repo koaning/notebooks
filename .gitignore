@@ -5,3 +5,7 @@ __pycache__/
 
 .env
 wandb/
+etf-data/
+__marimo__/
+transactions.csv
+**/.DS_Store
