@@ -244,7 +244,6 @@ def _(
         frac_breakeven,
         n_weeks,
         savings_at_end,
-        w_latest,
     )
 
 
@@ -262,7 +261,7 @@ def _(alt, breakeven_week, cost_df, n_weeks, pl):
         alt.Chart(cost_df)
         .mark_line(strokeWidth=2)
         .encode(
-            x=alt.X("week:Q", title="Week", scale=alt.Scale(domain=[0, n_weeks])),
+            x=alt.X("week:Q", title="Week", scale=alt.Scale(domain=[0, n_weeks], nice=False)),
             y=alt.Y("cost:Q", title="Cumulative Cost ($)"),
             color=alt.Color("strategy:N", title="Strategy"),
         ),
@@ -299,16 +298,14 @@ def _(
     breakeven_week,
     frac_breakeven,
     n_weeks,
-    w_latest,
 ):
     if breakeven_pdf_df is not None:
         _pct = f", {frac_breakeven:.0%} break even" if frac_breakeven < 0.999 else ""
-        _domain_max = min(w_latest, n_weeks) if w_latest is not None else n_weeks
         breakeven_chart = (
             alt.Chart(breakeven_pdf_df)
             .mark_area(opacity=0.3, color="steelblue", clip=True)
             .encode(
-                x=alt.X("week:Q", title="Break-even week", scale=alt.Scale(domain=[0, _domain_max])),
+                x=alt.X("week:Q", title="Break-even week", scale=alt.Scale(domain=[0, n_weeks], nice=False)),
                 y=alt.Y("density:Q", title="Density"),
             )
             .properties(
