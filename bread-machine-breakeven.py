@@ -4,7 +4,6 @@
 #     "altair>=6.0.0",
 #     "marimo",
 #     "polars>=1.18.0",
-#     "uncertainties==3.2.3",
 #     "wigglystuff",
 # ]
 # ///
@@ -22,11 +21,9 @@ def _():
     import marimo as mo
     import altair as alt
     import polars as pl
-    from uncertainties import ufloat
-    from uncertainties.umath import log as ulog
     from wigglystuff import TangleSlider
 
-    return TangleSlider, alt, math, mo, pl, ufloat, ulog
+    return TangleSlider, alt, math, mo, pl
 
 
 @app.cell(hide_code=True)
@@ -118,12 +115,12 @@ def _(
     salt_price,
     store_loaves,
     store_loaves_unc,
-    ufloat,
-    ulog,
     weeks_ahead,
     yeast_g,
     yeast_price,
 ):
+    import random
+
     n_weeks = weeks_ahead.value
     weeks = list(range(n_weeks + 1))
 
@@ -138,96 +135,96 @@ def _(
     cost_electricity = electricity_kwh.amount * electricity_price.amount
     cost_per_loaf = cost_flour + cost_yeast + cost_salt + cost_butter + cost_electricity
 
-    # Uncertain values (uniform dist std_dev = half_range / sqrt(3))
+    # Uniform distribution half-ranges
     unc_frac = ingredient_unc.amount / 100
-    store_loaves_u = ufloat(store_loaves.amount, store_loaves_unc.amount / math.sqrt(3))
-    home_loaves_u = ufloat(home_loaves.amount, home_loaves_unc.amount / math.sqrt(3))
-    ingr_mult_u = ufloat(1.0, unc_frac / math.sqrt(3))
+    store_half = store_loaves_unc.amount
+    home_half = home_loaves_unc.amount
 
-    # Weekly costs with uncertainty
-    store_weekly_u = bread_price.amount * store_loaves_u
-    machine_weekly_u = cost_per_loaf * ingr_mult_u * home_loaves_u
+    # Weekly costs: min / mid / max from uniform bounds
+    store_weekly_mid = bread_price.amount * store_loaves.amount
+    store_weekly_min = bread_price.amount * max(store_loaves.amount - store_half, 0)
+    store_weekly_max = bread_price.amount * (store_loaves.amount + store_half)
+
+    machine_weekly_mid = cost_per_loaf * home_loaves.amount
+    machine_weekly_min = cost_per_loaf * (1 - unc_frac) * max(home_loaves.amount - home_half, 0)
+    machine_weekly_max = cost_per_loaf * (1 + unc_frac) * (home_loaves.amount + home_half)
+
     mc = machine_cost.amount
 
-    # Cumulative costs with inflation and propagated uncertainty
-    def _nom(x):
-        return x.nominal_value if hasattr(x, 'nominal_value') else float(x)
-
-    def _std(x):
-        return x.std_dev if hasattr(x, 'std_dev') else 0.0
-
+    # Cumulative costs with inflation (true uniform bounds)
     store_mid = []
     store_lo = []
     store_hi = []
     machine_mid = []
     machine_lo = []
     machine_hi = []
-
-    s_cum = 0.0
-    m_cum = float(mc)
     breakeven_week = None
 
     for _w in weeks:
-        _sn, _ss = _nom(s_cum), _std(s_cum)
-        _mn, _ms = _nom(m_cum), _std(m_cum)
-        store_mid.append(_sn)
-        store_lo.append(_sn - _ss)
-        store_hi.append(_sn + _ss)
-        machine_mid.append(_mn)
-        machine_lo.append(_mn - _ms)
-        machine_hi.append(_mn + _ms)
+        _gw = (weekly_inflation ** _w - 1) / (weekly_inflation - 1) if weekly_inflation > 1.0001 else float(_w)
+        store_mid.append(store_weekly_mid * _gw)
+        store_lo.append(store_weekly_min * _gw)
+        store_hi.append(store_weekly_max * _gw)
+        machine_mid.append(mc + machine_weekly_mid * _gw)
+        machine_lo.append(mc + machine_weekly_min * _gw)
+        machine_hi.append(mc + machine_weekly_max * _gw)
 
-        if breakeven_week is None and _w > 0 and _sn >= _mn:
+        if breakeven_week is None and _w > 0 and store_weekly_mid * _gw >= mc + machine_weekly_mid * _gw:
             breakeven_week = _w
-
-        _infl = weekly_inflation ** _w
-        s_cum = s_cum + store_weekly_u * _infl
-        m_cum = m_cum + machine_weekly_u * _infl
-
-    # Break-even with uncertainty (closed-form geometric series)
-    savings_weekly_u = store_weekly_u - machine_weekly_u
-    if savings_weekly_u.nominal_value > 0:
-        if weekly_inflation > 1.0001:
-            breakeven_u = ulog(mc * (weekly_inflation - 1) / savings_weekly_u + 1) / math.log(weekly_inflation)
-        else:
-            breakeven_u = mc / savings_weekly_u
-    else:
-        breakeven_u = None
 
     savings_at_end = store_mid[-1] - machine_mid[-1]
 
-    # Exact break-even PDF via change of variables
-    # S ~ N(s_mu, s_sigma^2) where S is weekly savings
-    breakeven_pdf_df = None
-    if breakeven_u is not None and savings_weekly_u.std_dev > 0:
-        _s_mu = savings_weekly_u.nominal_value
-        _s_sigma = savings_weekly_u.std_dev
+    # Analytical break-even bounds from uniform extremes
+    savings_max = store_weekly_max - machine_weekly_min
+    savings_min = store_weekly_min - machine_weekly_max
 
-        def _phi(z):
-            return math.exp(-0.5 * z ** 2) / math.sqrt(2 * math.pi)
-
-        _s_lo = max(_s_mu - 3 * _s_sigma, _s_mu * 0.1)
-        _n_pts = 300
-
+    def _breakeven_week(savings):
         if weekly_inflation > 1.0001:
-            _r = weekly_inflation
-            _log_r = math.log(_r)
-            _w_max = math.log(mc * (_r - 1) / _s_lo + 1) / _log_r
-            _step = (_w_max - 1.0) / _n_pts
-            _ws = [1.0 + _i * _step for _i in range(_n_pts + 1)]
-            _ds = []
-            for _w in _ws:
-                _rw = _r ** _w
-                _s_w = mc * (_r - 1) / (_rw - 1)
-                _ds_dw = mc * (_r - 1) * _rw * _log_r / (_rw - 1) ** 2
-                _ds.append(_phi((_s_w - _s_mu) / _s_sigma) / _s_sigma * _ds_dw)
-        else:
-            _w_max = mc / _s_lo
-            _step = (_w_max - 1.0) / _n_pts
-            _ws = [1.0 + _i * _step for _i in range(_n_pts + 1)]
-            _ds = [_phi((mc / _w - _s_mu) / _s_sigma) / _s_sigma * mc / _w ** 2 for _w in _ws]
+            return math.log(mc * (weekly_inflation - 1) / savings + 1) / math.log(weekly_inflation)
+        return mc / savings
 
-        breakeven_pdf_df = pl.DataFrame({"week": _ws, "density": _ds})
+    w_earliest = _breakeven_week(savings_max) if savings_max > 0 else None
+    w_latest = _breakeven_week(savings_min) if savings_min > 0 else None
+
+    # Monte Carlo break-even distribution (respects uniform input bounds)
+    random.seed(42)
+    n_sim = 200_000
+    breakeven_samples = []
+    n_never = 0
+    for _ in range(n_sim):
+        _sl = store_loaves.amount + random.uniform(-store_half, store_half)
+        _hl = home_loaves.amount + random.uniform(-home_half, home_half)
+        _im = 1.0 + random.uniform(-unc_frac, unc_frac)
+        _savings = bread_price.amount * max(_sl, 0) - cost_per_loaf * _im * max(_hl, 0)
+        if _savings > 0:
+            breakeven_samples.append(_breakeven_week(_savings))
+        else:
+            n_never += 1
+
+    frac_breakeven = len(breakeven_samples) / n_sim
+
+    if breakeven_samples:
+        breakeven_mean = sum(breakeven_samples) / len(breakeven_samples)
+        breakeven_std = (sum((_bw - breakeven_mean) ** 2 for _bw in breakeven_samples) / len(breakeven_samples)) ** 0.5
+        # Histogram only within the visible range [0, w_latest or n_weeks]
+        _hist_max = min(w_latest, n_weeks) if w_latest is not None else n_weeks
+        _hist_min = w_earliest if w_earliest is not None else min(breakeven_samples)
+        _visible = [w for w in breakeven_samples if w <= _hist_max]
+        _n_bins = 150
+        _bin_w = (_hist_max - _hist_min) / _n_bins
+        _counts = [0] * _n_bins
+        for _bw in _visible:
+            _idx = min(int((_bw - _hist_min) / _bin_w), _n_bins - 1)
+            _counts[_idx] += 1
+        _total = n_sim * _bin_w  # normalize against ALL samples, not just visible
+        breakeven_pdf_df = pl.DataFrame({
+            "week": [_hist_min + (i + 0.5) * _bin_w for i in range(_n_bins)],
+            "density": [c / _total for c in _counts],
+        })
+    else:
+        breakeven_mean = None
+        breakeven_std = None
+        breakeven_pdf_df = None
 
     n = len(weeks)
     cost_df = pl.DataFrame({
@@ -238,13 +235,16 @@ def _(
         "strategy": ["Store-bought"] * n + ["Bread machine"] * n,
     })
     return (
+        breakeven_mean,
         breakeven_pdf_df,
-        breakeven_u,
+        breakeven_std,
         breakeven_week,
         cost_df,
         cost_per_loaf,
+        frac_breakeven,
         n_weeks,
         savings_at_end,
+        w_latest,
     )
 
 
@@ -292,29 +292,37 @@ def _(alt, breakeven_week, cost_df, n_weeks, pl):
 
 
 @app.cell
-def _(alt, breakeven_pdf_df, breakeven_u, n_weeks, pl):
+def _(
+    alt,
+    breakeven_mean,
+    breakeven_pdf_df,
+    breakeven_week,
+    frac_breakeven,
+    n_weeks,
+    w_latest,
+):
     if breakeven_pdf_df is not None:
-        _mu = breakeven_u.nominal_value
+        _pct = f", {frac_breakeven:.0%} break even" if frac_breakeven < 0.999 else ""
+        _domain_max = min(w_latest, n_weeks) if w_latest is not None else n_weeks
         breakeven_chart = (
             alt.Chart(breakeven_pdf_df)
             .mark_area(opacity=0.3, color="steelblue", clip=True)
             .encode(
-                x=alt.X("week:Q", title="Break-even week", scale=alt.Scale(domain=[0, n_weeks])),
+                x=alt.X("week:Q", title="Break-even week", scale=alt.Scale(domain=[0, _domain_max])),
                 y=alt.Y("density:Q", title="Density"),
             )
             .properties(
                 width=400,
                 height=200,
-                title=f"Break-even distribution (mean≈{_mu:.0f} weeks)",
+                title=f"Break-even distribution (mean≈{breakeven_mean:.0f} weeks{_pct})",
             )
         )
-    elif breakeven_u is not None:
-        _w_val = breakeven_u.nominal_value
+    elif breakeven_week is not None:
         breakeven_chart = (
-            alt.Chart(pl.DataFrame({"week": [_w_val]}))
+            alt.Chart({"values": [{"week": breakeven_week}]})
             .mark_rule(strokeWidth=2, color="steelblue")
             .encode(x="week:Q")
-            .properties(width=400, height=200, title=f"Break-even at week {_w_val:.0f} (no uncertainty)")
+            .properties(width=400, height=200, title=f"Break-even at week {breakeven_week} (no uncertainty)")
         )
     else:
         breakeven_chart = None
@@ -322,10 +330,17 @@ def _(alt, breakeven_pdf_df, breakeven_u, n_weeks, pl):
 
 
 @app.cell(hide_code=True)
-def _(breakeven_u, breakeven_week, cost_per_loaf, mo, n_weeks, savings_at_end):
+def _(
+    breakeven_std,
+    breakeven_week,
+    cost_per_loaf,
+    mo,
+    n_weeks,
+    savings_at_end,
+):
     _be_text = f"Week {breakeven_week} (~{breakeven_week * 7 / 30:.0f} months)" if breakeven_week is not None else "—"
-    if breakeven_u is not None and breakeven_u.std_dev > 0:
-        _be_text += f" ± {breakeven_u.std_dev:.0f} weeks"
+    if breakeven_std is not None and breakeven_std > 0:
+        _be_text += f" ± {breakeven_std:.0f} weeks"
 
     summary_text = mo.md(f"""
     ## Summary
@@ -336,7 +351,7 @@ def _(breakeven_u, breakeven_week, cost_per_loaf, mo, n_weeks, savings_at_end):
     | **Break-even point** | {_be_text} |
     | **Savings after {n_weeks} weeks** | ${savings_at_end:,.2f} |
 
-    The shaded bands show ±1σ uncertainty from consumption and ingredient price variation.
+    The shaded bands show the full range of uncertainty from consumption and ingredient price variation.
     """)
     return (summary_text,)
 
@@ -371,51 +386,23 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Appendix: Exact Break-Even Distribution
+    ## Appendix: Break-Even Distribution
 
-    The break-even distribution shown above is computed **exactly** via the change-of-variables formula — no simulation or parametric fit required.
-
-    ### Savings as an approximately normal random variable
+    ### Savings as a random variable
 
     Let $S$ denote the weekly savings from using the bread machine:
 
     $$S = p \cdot X - c \cdot Y \cdot Z$$
 
-    where $p$ is the store bread price, $c$ is the ingredient cost per loaf, and $X$ (store loaves/week), $Y$ (home loaves/week), $Z$ (ingredient price multiplier) are independent **uniform** random variables. The sliders define their ranges, and the standard deviation of a uniform on $[\mu - h, \mu + h]$ is $h / \sqrt{3}$.
-
-    Although the inputs are uniform, we approximate $S$ as Gaussian: $S \sim \mathcal{N}(\mu_S,\, \sigma_S^2)$. This is justified because $S$ is a sum of several independent terms, and by the central limit theorem such sums converge to normality. First-order error propagation (via the `uncertainties` library) gives us $\mu_S$ and $\sigma_S$ — these depend only on the means and variances, not on the input distribution shape.
+    where $p$ is the store bread price, $c$ is the ingredient cost per loaf, and $X$ (store loaves/week), $Y$ (home loaves/week), $Z$ (ingredient price multiplier) are independent **uniform** random variables. The sliders define their ranges.
 
     ### Break-even as a function of savings
 
-    With weekly inflation multiplier $r > 1$, cumulative store cost after $w$ weeks is the geometric series $p X \sum_{k=0}^{w-1} r^k = p X \cdot \frac{r^w - 1}{r - 1}$, and similarly for the machine. The break-even week $W$ is the smallest $w$ where cumulative store cost equals machine cost $C$ plus cumulative ingredient cost. Setting these equal and simplifying gives:
+    With weekly inflation multiplier $r > 1$, cumulative store cost after $w$ weeks is the geometric series $p X \cdot \frac{r^w - 1}{r - 1}$, and similarly for the machine. Setting cumulative costs equal gives:
 
-    $$C = S \cdot \frac{r^W - 1}{r - 1}$$
+    $$W = \frac{\log\!\bigl(C(r-1)/S + 1\bigr)}{\log r}$$
 
-    Solving for $W$:
-
-    $$r^W = \frac{C(r-1)}{S} + 1 \quad\implies\quad W = \frac{\log\!\bigl(C(r-1)/S + 1\bigr)}{\log r}$$
-
-    Since $S > 0$ (the machine saves money on average) and $r > 1$, $W$ is a monotonically decreasing function of $S$: larger weekly savings means earlier break-even.
-
-    ### Deriving the PDF via change of variables
-
-    For a monotone transformation $W = g(S)$, the change-of-variables formula gives:
-
-    $$f_W(w) = f_S\!\bigl(g^{-1}(w)\bigr) \cdot \left|\frac{dS}{dw}\right|$$
-
-    **Step 1 — Invert** $W = g(S)$ **to get** $S = g^{-1}(w)$. Starting from $r^w = C(r-1)/S + 1$:
-
-    $$S(w) = \frac{C(r-1)}{r^w - 1}$$
-
-    **Step 2 — Differentiate** $S(w)$ using the quotient rule. Writing $S(w) = C(r-1) \cdot (r^w - 1)^{-1}$:
-
-    $$\frac{dS}{dw} = -C(r-1) \cdot \frac{r^w \log r}{(r^w - 1)^2}$$
-
-    **Step 3 — Substitute** into the change-of-variables formula. The PDF of $S$ is the normal density $f_S(s) = \varphi\!\left(\frac{s - \mu_S}{\sigma_S}\right) / \sigma_S$ where $\varphi(z) = e^{-z^2/2}/\sqrt{2\pi}$ is the standard normal PDF. Combining:
-
-    $$\boxed{f_W(w) = \frac{1}{\sigma_S}\,\varphi\!\left(\frac{S(w) - \mu_S}{\sigma_S}\right) \cdot \frac{C(r-1)\,r^w \log r}{(r^w - 1)^2}}$$
-
-    This is evaluated pointwise to produce the break-even distribution chart.
+    Since the inputs are uniform with hard bounds, $S$ also has hard bounds — which means $W$ has a finite maximum. The break-even distribution is computed via Monte Carlo: we draw 200,000 samples of $(X, Y, Z)$ from their uniform ranges, compute $S$ for each, and apply the formula above to get a sample of break-even weeks. The shaded bands on the cumulative cost chart show the true min/max range from the same uniform distributions, so the break-even distribution's support matches exactly the region where the bands overlap.
     """)
     return
 
