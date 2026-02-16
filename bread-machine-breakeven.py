@@ -196,22 +196,38 @@ def _(
 
     savings_at_end = store_mid[-1] - machine_mid[-1]
 
-    # Lognormal parameters from break-even mean/std (always positive, right-skewed)
-    if breakeven_u is not None and breakeven_u.std_dev > 0:
-        _be_mu = breakeven_u.nominal_value
-        _be_sigma = breakeven_u.std_dev
-        _cv = _be_sigma / _be_mu
-        sigma_ln = math.sqrt(math.log(1 + _cv ** 2))
-        mu_ln = math.log(_be_mu) - sigma_ln ** 2 / 2
-        # x range: median * exp(±3σ_ln)
-        x_max_dist = math.exp(mu_ln + 3 * sigma_ln)
-    else:
-        sigma_ln = None
-        mu_ln = None
-        x_max_dist = 0.0
+    # Exact break-even PDF via change of variables
+    # S ~ N(s_mu, s_sigma^2) where S is weekly savings
+    breakeven_pdf_df = None
+    if breakeven_u is not None and savings_weekly_u.std_dev > 0:
+        _s_mu = savings_weekly_u.nominal_value
+        _s_sigma = savings_weekly_u.std_dev
 
-    # Shared x-axis upper bound for both charts
-    x_max_shared = max(n_weeks, x_max_dist)
+        def _phi(z):
+            return math.exp(-0.5 * z ** 2) / math.sqrt(2 * math.pi)
+
+        _s_lo = max(_s_mu - 3 * _s_sigma, _s_mu * 0.1)
+        _n_pts = 300
+
+        if weekly_inflation > 1.0001:
+            _r = weekly_inflation
+            _log_r = math.log(_r)
+            _w_max = math.log(mc * (_r - 1) / _s_lo + 1) / _log_r
+            _step = (_w_max - 1.0) / _n_pts
+            _ws = [1.0 + _i * _step for _i in range(_n_pts + 1)]
+            _ds = []
+            for _w in _ws:
+                _rw = _r ** _w
+                _s_w = mc * (_r - 1) / (_rw - 1)
+                _ds_dw = mc * (_r - 1) * _rw * _log_r / (_rw - 1) ** 2
+                _ds.append(_phi((_s_w - _s_mu) / _s_sigma) / _s_sigma * _ds_dw)
+        else:
+            _w_max = mc / _s_lo
+            _step = (_w_max - 1.0) / _n_pts
+            _ws = [1.0 + _i * _step for _i in range(_n_pts + 1)]
+            _ds = [_phi((mc / _w - _s_mu) / _s_sigma) / _s_sigma * mc / _w ** 2 for _w in _ws]
+
+        breakeven_pdf_df = pl.DataFrame({"week": _ws, "density": _ds})
 
     n = len(weeks)
     cost_df = pl.DataFrame({
@@ -222,20 +238,18 @@ def _(
         "strategy": ["Store-bought"] * n + ["Bread machine"] * n,
     })
     return (
+        breakeven_pdf_df,
         breakeven_u,
         breakeven_week,
         cost_df,
         cost_per_loaf,
-        mu_ln,
         n_weeks,
         savings_at_end,
-        sigma_ln,
-        x_max_shared,
     )
 
 
 @app.cell
-def _(alt, breakeven_week, cost_df, n_weeks, pl, x_max_shared):
+def _(alt, breakeven_week, cost_df, n_weeks, pl):
     _layers = [
         alt.Chart(cost_df)
         .mark_area(opacity=0.15)
@@ -248,7 +262,7 @@ def _(alt, breakeven_week, cost_df, n_weeks, pl, x_max_shared):
         alt.Chart(cost_df)
         .mark_line(strokeWidth=2)
         .encode(
-            x=alt.X("week:Q", title="Week", scale=alt.Scale(domain=[0, x_max_shared])),
+            x=alt.X("week:Q", title="Week", scale=alt.Scale(domain=[0, n_weeks])),
             y=alt.Y("cost:Q", title="Cumulative Cost ($)"),
             color=alt.Color("strategy:N", title="Strategy"),
         ),
@@ -278,26 +292,14 @@ def _(alt, breakeven_week, cost_df, n_weeks, pl, x_max_shared):
 
 
 @app.cell
-def _(alt, breakeven_u, math, mu_ln, pl, sigma_ln, x_max_shared):
-    if mu_ln is not None and sigma_ln is not None:
+def _(alt, breakeven_pdf_df, breakeven_u, n_weeks, pl):
+    if breakeven_pdf_df is not None:
         _mu = breakeven_u.nominal_value
-        # Lognormal PDF: always positive, right-skewed
-        _x_min = max(1, math.exp(mu_ln - 3 * sigma_ln))
-        _x_max = math.exp(mu_ln + 3 * sigma_ln)
-        _n_pts = 200
-        _step = (_x_max - _x_min) / _n_pts
-        _xs = [_x_min + _i * _step for _i in range(_n_pts + 1)]
-        _ys = [
-            math.exp(-0.5 * ((math.log(_x) - mu_ln) / sigma_ln) ** 2)
-            / (_x * sigma_ln * math.sqrt(2 * math.pi))
-            for _x in _xs
-        ]
-        _df = pl.DataFrame({"week": _xs, "density": _ys})
         breakeven_chart = (
-            alt.Chart(_df)
-            .mark_area(opacity=0.3, color="steelblue")
+            alt.Chart(breakeven_pdf_df)
+            .mark_area(opacity=0.3, color="steelblue", clip=True)
             .encode(
-                x=alt.X("week:Q", title="Break-even week", scale=alt.Scale(domain=[0, x_max_shared])),
+                x=alt.X("week:Q", title="Break-even week", scale=alt.Scale(domain=[0, n_weeks])),
                 y=alt.Y("density:Q", title="Density"),
             )
             .properties(
@@ -311,7 +313,7 @@ def _(alt, breakeven_u, math, mu_ln, pl, sigma_ln, x_max_shared):
         breakeven_chart = (
             alt.Chart(pl.DataFrame({"week": [_w_val]}))
             .mark_rule(strokeWidth=2, color="steelblue")
-            .encode(x=alt.X("week:Q", scale=alt.Scale(domain=[0, x_max_shared])))
+            .encode(x="week:Q")
             .properties(width=400, height=200, title=f"Break-even at week {_w_val:.0f} (no uncertainty)")
         )
     else:
@@ -363,6 +365,58 @@ def _(
         mo.vstack([_title, store_text, machine_text, weeks_ahead, summary_text], gap=0),
         mo.vstack(_right_items),
     ], widths=[1, 1])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Appendix: Exact Break-Even Distribution
+
+    The break-even distribution shown above is computed **exactly** via the change-of-variables formula — no simulation or parametric fit required.
+
+    ### Savings as an approximately normal random variable
+
+    Let $S$ denote the weekly savings from using the bread machine:
+
+    $$S = p \cdot X - c \cdot Y \cdot Z$$
+
+    where $p$ is the store bread price, $c$ is the ingredient cost per loaf, and $X$ (store loaves/week), $Y$ (home loaves/week), $Z$ (ingredient price multiplier) are independent **uniform** random variables. The sliders define their ranges, and the standard deviation of a uniform on $[\mu - h, \mu + h]$ is $h / \sqrt{3}$.
+
+    Although the inputs are uniform, we approximate $S$ as Gaussian: $S \sim \mathcal{N}(\mu_S,\, \sigma_S^2)$. This is justified because $S$ is a sum of several independent terms, and by the central limit theorem such sums converge to normality. First-order error propagation (via the `uncertainties` library) gives us $\mu_S$ and $\sigma_S$ — these depend only on the means and variances, not on the input distribution shape.
+
+    ### Break-even as a function of savings
+
+    With weekly inflation multiplier $r > 1$, cumulative store cost after $w$ weeks is the geometric series $p X \sum_{k=0}^{w-1} r^k = p X \cdot \frac{r^w - 1}{r - 1}$, and similarly for the machine. The break-even week $W$ is the smallest $w$ where cumulative store cost equals machine cost $C$ plus cumulative ingredient cost. Setting these equal and simplifying gives:
+
+    $$C = S \cdot \frac{r^W - 1}{r - 1}$$
+
+    Solving for $W$:
+
+    $$r^W = \frac{C(r-1)}{S} + 1 \quad\implies\quad W = \frac{\log\!\bigl(C(r-1)/S + 1\bigr)}{\log r}$$
+
+    Since $S > 0$ (the machine saves money on average) and $r > 1$, $W$ is a monotonically decreasing function of $S$: larger weekly savings means earlier break-even.
+
+    ### Deriving the PDF via change of variables
+
+    For a monotone transformation $W = g(S)$, the change-of-variables formula gives:
+
+    $$f_W(w) = f_S\!\bigl(g^{-1}(w)\bigr) \cdot \left|\frac{dS}{dw}\right|$$
+
+    **Step 1 — Invert** $W = g(S)$ **to get** $S = g^{-1}(w)$. Starting from $r^w = C(r-1)/S + 1$:
+
+    $$S(w) = \frac{C(r-1)}{r^w - 1}$$
+
+    **Step 2 — Differentiate** $S(w)$ using the quotient rule. Writing $S(w) = C(r-1) \cdot (r^w - 1)^{-1}$:
+
+    $$\frac{dS}{dw} = -C(r-1) \cdot \frac{r^w \log r}{(r^w - 1)^2}$$
+
+    **Step 3 — Substitute** into the change-of-variables formula. The PDF of $S$ is the normal density $f_S(s) = \varphi\!\left(\frac{s - \mu_S}{\sigma_S}\right) / \sigma_S$ where $\varphi(z) = e^{-z^2/2}/\sqrt{2\pi}$ is the standard normal PDF. Combining:
+
+    $$\boxed{f_W(w) = \frac{1}{\sigma_S}\,\varphi\!\left(\frac{S(w) - \mu_S}{\sigma_S}\right) \cdot \frac{C(r-1)\,r^w \log r}{(r^w - 1)^2}}$$
+
+    This is evaluated pointwise to produce the break-even distribution chart.
+    """)
     return
 
 
