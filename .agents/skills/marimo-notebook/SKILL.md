@@ -1,4 +1,9 @@
-# Claude Code Notes for Valletta Notebooks
+---
+name: marimo-notebook
+description: Write a marimo notebook in a Python file in the right format.
+---
+
+# Notes for marimo Notebooks
 
 ## Running Marimo Notebooks
 
@@ -153,23 +158,11 @@ def _(mo, condition):
 
 ## Marimo Variable Naming
 
-The `_` prefix in marimo makes variables cell-private (they can't be exported to other cells). **Only use it for loop variables** that would conflict across cells:
+Variables in `for` loops that would conflict across cells need underscore prefix:
 
 ```python
-# GOOD - loop variables that would clash across cells
+# Use _name, _model to make them cell-private
 for _name, _model in items:
-    ...
-```
-
-Don't use `_` prefix for helper functions — even if they're only used in one cell right now, keeping them exportable means they can be reused later:
-
-```python
-# BAD - unnecessarily private, can't be reused
-def _subsample(X, y, max_samples):
-    ...
-
-# GOOD - available for other cells to import
-def subsample(X, y, max_samples):
     ...
 ```
 
@@ -199,3 +192,28 @@ parquet_file = data_dir / "data.parquet"
 import os
 parquet_file = os.path.join(temp_dir, "data.parquet")
 ```
+
+
+## marimo check 
+
+When working on a notebook it is important to check if the notebook can run. That's why marimo provides a `check` command that acts as a linter to find common mistakes. 
+
+```bash
+uvx marimo check <notebook.py>
+```
+
+Make sure these are checked before handing a notebook back to the user.
+
+## api docs
+
+If the user specifically wants you to use a marimo function, you can locally check the docs via: 
+
+```
+uv --with marimo run python -c "import marimo as mo; help(mo.ui.form)"
+```
+
+## Additional resources
+
+- For SQL use in marimo see [SQL.md](references/SQL.md)
+- For UI elements in marimo [UI.md](references/UI.md)
+- For exposing functions/classes as top level imports [TOP-LEVEL-IMPORTS.md](references/TOP-LEVEL-IMPORTS.md)
