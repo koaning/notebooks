@@ -4,6 +4,7 @@
 #     "datasets==4.5.0",
 #     "marimo",
 #     "pydantic==2.12.5",
+#     "rich==14.0.0",
 #     "python-dotenv==1.2.1",
 #     "torch==2.10.0",
 #     "transformers==5.2.0",
@@ -58,11 +59,12 @@ def _():
 
 
 @app.cell
-def _(EnvConfig, wandb):
+def _(EnvConfig, is_script_mode, wandb):
     env_config = EnvConfig({
         "WANDB_API_KEY": lambda k: wandb.login(key=k, verify=True),
     })
-    env_config
+    if not is_script_mode:
+        env_config
     return (env_config,)
 
 
@@ -76,8 +78,28 @@ def _():
 
 
 @app.cell
-def _(mo):
+def _(ModelParams, mo):
+    import sys
+
     is_script_mode = mo.app_meta().mode == "script"
+
+    if is_script_mode and not mo.cli_args():
+        from rich.console import Console
+        from rich.table import Table
+
+        table = Table(title="CLI Options")
+        table.add_column("Flag", style="cyan")
+        table.add_column("Type", style="green")
+        table.add_column("Default", style="yellow")
+        table.add_column("Description")
+
+        for name, field in ModelParams.model_fields.items():
+            flag = f"--{name.replace('_', '-')}"
+            type_name = field.annotation.__name__ if hasattr(field.annotation, "__name__") else str(field.annotation)
+            table.add_row(flag, type_name, str(field.default), field.description or "")
+
+        Console().print(table)
+        sys.exit(0)
     return (is_script_mode,)
 
 
@@ -88,14 +110,13 @@ def _(BaseModel, Field):
     from pydantic import computed_field
 
     class ModelParams(BaseModel):
-        max_samples: int = Field(default=1000, description="Max training samples to prepare.")
-        temperature: float = Field(default=2.0, description="Contrastive loss temperature (t).")
+        max_samples: int = Field(default=10000, description="Max training samples to prepare.")
+        temperature: float = Field(default=1.0, description="Contrastive loss temperature (t).")
         loss_name: str = Field(default="softmax", description="Loss type: softmax or sigmoid.")
-        epochs: int = Field(default=1, description="Number of training epochs.")
+        epochs: int = Field(default=25, description="Number of training epochs.")
         batch_size: int = Field(default=32, description="Training batch size.")
         learning_rate: float = Field(default=1e-4, description="Learning rate for AdamW.")
-        max_length: int = Field(default=96, description="Max token length for tokenizer.")
-        wandb_project: str = Field(default="", description="W&B project name (empty to skip).")
+        wandb_project: str = Field(default="batch-sizes", description="W&B project name (empty to skip).")
 
         @computed_field
         @property
@@ -113,7 +134,6 @@ def _(BaseModel, Field):
                 "batch_size": self.batch_size,
                 "learning_rate": self.learning_rate,
                 "temperature": self.temperature,
-                "max_length": self.max_length,
                 "max_samples": self.max_samples,
             }
             h = hashlib.md5(json.dumps(params_dict, sort_keys=True).encode()).hexdigest()[:6]
@@ -131,16 +151,14 @@ def _(mo):
     {epochs}
     {batch_size}
     {learning_rate}
-    {max_length}
     {wandb_project}
     """).batch(
-        max_samples=mo.ui.slider(200, 5000, value=1000, step=100, label="max prepared samples"),
-        temperature=mo.ui.slider(0.05, 5.0, value=2.0, step=0.05, label="temperature (t)"),
+        max_samples=mo.ui.slider(200, 10000, value=10000, step=100, label="max prepared samples"),
+        temperature=mo.ui.slider(0.05, 5.0, value=1.0, step=0.05, label="temperature (t)"),
         loss_name=mo.ui.dropdown(["softmax", "sigmoid"], value="softmax", label="loss"),
-        epochs=mo.ui.slider(10, 25, value=10, step=1, label="epochs"),
-        batch_size=mo.ui.slider(8, 64, value=32, step=8, label="batch size"),
+        epochs=mo.ui.slider(10, 50, value=50, step=1, label="epochs"),
+        batch_size=mo.ui.slider(8, 512, value=32, step=8, label="batch size"),
         learning_rate=mo.ui.slider(1e-5, 5e-4, value=1e-4, step=1e-5, label="learning rate"),
-        max_length=mo.ui.slider(32, 192, value=96, step=16, label="max tokens"),
         wandb_project=mo.ui.text(value="batch-sizes", label="W&B project (empty to skip)"),
     ).form()
     params_form
@@ -449,15 +467,20 @@ def _(
             val_x = torch.cat(val_x_all, dim=0)
             val_y = torch.cat(val_y_all, dim=0)
             sim = val_x @ val_y.T
-            top1 = sim.argmax(dim=1)
             targets = torch.arange(sim.shape[0], device=sim.device)
+            top1 = sim.argmax(dim=1)
             val_recall_at_1 = (top1 == targets).float().mean().item()
+            if sim.shape[0] < 5:
+                raise ValueError(f"Validation set too small for recall@5: got {sim.shape[0]} samples, need at least 5.")
+            top5 = sim.topk(5, dim=1).indices
+            val_recall_at_5 = (top5 == targets.unsqueeze(1)).any(dim=1).float().mean().item()
 
             entry = {
                 "epoch": epoch + 1,
                 "train_loss": train_total / max(train_batches, 1),
                 "val_loss_in_batch": val_total / max(val_batches, 1),
                 "val_recall_at_1": val_recall_at_1,
+                "val_recall_at_5": val_recall_at_5,
             }
             training_log.append(entry)
 
@@ -487,14 +510,14 @@ def _(
             headlines,
             padding=True,
             truncation=True,
-            max_length=model_params.max_length,
+            max_length=96,
             return_tensors="pt",
         )
         y_tokens = tokenizer(
             leads,
             padding=True,
             truncation=True,
-            max_length=model_params.max_length,
+            max_length=96,
             return_tensors="pt",
         )
         return x_tokens, y_tokens
