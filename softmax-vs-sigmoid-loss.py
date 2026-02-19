@@ -3,8 +3,12 @@
 # dependencies = [
 #     "datasets==4.5.0",
 #     "marimo",
+#     "pydantic==2.12.5",
+#     "python-dotenv==1.2.1",
 #     "torch==2.10.0",
 #     "transformers==5.2.0",
+#     "wandb==0.25.0",
+#     "wigglystuff==0.2.28",
 # ]
 # ///
 
@@ -44,6 +48,26 @@ def _(mo):
 
 @app.cell
 def _():
+    from dotenv import load_dotenv
+    import wandb
+    from pydantic import BaseModel, Field
+    from wigglystuff import EnvConfig
+
+    load_dotenv(".env")
+    return BaseModel, EnvConfig, Field, wandb
+
+
+@app.cell
+def _(EnvConfig, wandb):
+    env_config = EnvConfig({
+        "WANDB_API_KEY": lambda k: wandb.login(key=k, verify=True),
+    })
+    env_config
+    return (env_config,)
+
+
+@app.cell
+def _():
     import marimo as mo
     import torch
     import torch.nn.functional as F
@@ -53,9 +77,74 @@ def _():
 
 @app.cell
 def _(mo):
-    t = mo.ui.slider(start=0.05, stop=5.0, step=0.05, value=2.0, label="temperature (t)")
-    t
-    return (t,)
+    is_script_mode = mo.app_meta().mode == "script"
+    return (is_script_mode,)
+
+
+@app.cell
+def _(BaseModel, Field):
+    import hashlib
+    import json
+    from pydantic import computed_field
+
+    class ModelParams(BaseModel):
+        max_samples: int = Field(default=1000, description="Max training samples to prepare.")
+        temperature: float = Field(default=2.0, description="Contrastive loss temperature (t).")
+        loss_name: str = Field(default="softmax", description="Loss type: softmax or sigmoid.")
+        epochs: int = Field(default=1, description="Number of training epochs.")
+        batch_size: int = Field(default=32, description="Training batch size.")
+        learning_rate: float = Field(default=1e-4, description="Learning rate for AdamW.")
+        max_length: int = Field(default=96, description="Max token length for tokenizer.")
+        wandb_project: str = Field(default="", description="W&B project name (empty to skip).")
+
+        @computed_field
+        @property
+        def run_name(self) -> str:
+            parts = [
+                self.loss_name,
+                f"e{self.epochs}",
+                f"bs{self.batch_size}",
+                f"lr{self.learning_rate:.0e}",
+                f"t{self.temperature}",
+            ]
+            params_dict = {
+                "loss_name": self.loss_name,
+                "epochs": self.epochs,
+                "batch_size": self.batch_size,
+                "learning_rate": self.learning_rate,
+                "temperature": self.temperature,
+                "max_length": self.max_length,
+                "max_samples": self.max_samples,
+            }
+            h = hashlib.md5(json.dumps(params_dict, sort_keys=True).encode()).hexdigest()[:6]
+            return "-".join(parts) + f"-{h}"
+
+    return (ModelParams,)
+
+
+@app.cell
+def _(mo):
+    params_form = mo.md("""
+    {max_samples}
+    {temperature}
+    {loss_name}
+    {epochs}
+    {batch_size}
+    {learning_rate}
+    {max_length}
+    {wandb_project}
+    """).batch(
+        max_samples=mo.ui.slider(200, 5000, value=1000, step=100, label="max prepared samples"),
+        temperature=mo.ui.slider(0.05, 5.0, value=2.0, step=0.05, label="temperature (t)"),
+        loss_name=mo.ui.dropdown(["softmax", "sigmoid"], value="softmax", label="loss"),
+        epochs=mo.ui.slider(10, 25, value=10, step=1, label="epochs"),
+        batch_size=mo.ui.slider(8, 64, value=32, step=8, label="batch size"),
+        learning_rate=mo.ui.slider(1e-5, 5e-4, value=1e-4, step=1e-5, label="learning rate"),
+        max_length=mo.ui.slider(32, 192, value=96, step=16, label="max tokens"),
+        wandb_project=mo.ui.text(value="batch-sizes", label="W&B project (empty to skip)"),
+    ).form()
+    params_form
+    return (params_form,)
 
 
 @app.cell(hide_code=True)
@@ -129,20 +218,20 @@ def _(F, torch):
 
 
 @app.cell
-def _(sigmoid_loss, sigmoid_loss_chunked, softmax_loss, t, torch):
+def _(model_params, sigmoid_loss, sigmoid_loss_chunked, softmax_loss, torch):
     torch.manual_seed(0)
     _x = torch.randn(8, 4)
     _y = torch.randn(8, 4)
     {
-        "temperature_t": t.value,
-        "softmax_loss": float(softmax_loss(_x, _y, t=t.value)),
-        "sigmoid_loss": float(sigmoid_loss(_x, _y, t=t.value, b=-0.3)),
-        "chunked_loss": float(sigmoid_loss_chunked(_x, _y, t=t.value, b=-0.3, chunk_size=3)),
+        "temperature_t": model_params.temperature,
+        "softmax_loss": float(softmax_loss(_x, _y, t=model_params.temperature)),
+        "sigmoid_loss": float(sigmoid_loss(_x, _y, t=model_params.temperature, b=-0.3)),
+        "chunked_loss": float(sigmoid_loss_chunked(_x, _y, t=model_params.temperature, b=-0.3, chunk_size=3)),
     }
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Dataset Task: Headline -> Lead
@@ -154,15 +243,6 @@ def _(mo):
     We keep stratified `train`/`val`/`test` splits in memory as Hugging Face `Dataset` objects.
     """)
     return
-
-
-@app.cell
-def _(mo):
-    max_samples = mo.ui.slider(
-        start=200, stop=5000, step=100, value=1000, label="max prepared samples"
-    )
-    max_samples
-    return (max_samples,)
 
 
 @app.cell
@@ -181,7 +261,7 @@ def clean_text(text: str) -> str:
 
 
 @app.cell
-def _(Counter, Dataset, defaultdict, load_dataset, max_samples, random):
+def _(Counter, Dataset, defaultdict, load_dataset, model_params, random):
     raw = load_dataset("heegyu/news-category-dataset", split="train")
 
     rows = []
@@ -201,7 +281,7 @@ def _(Counter, Dataset, defaultdict, load_dataset, max_samples, random):
 
     rng = random.Random(42)
     rng.shuffle(rows)
-    rows = rows[: min(max_samples.value, len(rows))]
+    rows = rows[: min(model_params.max_samples, len(rows))]
 
     by_topic = defaultdict(list)
     for row in rows:
@@ -246,7 +326,16 @@ def _(Counter, Dataset, defaultdict, load_dataset, max_samples, random):
     return test_dataset, train_dataset, val_dataset
 
 
-@app.cell(column=1, hide_code=True)
+@app.cell(column=1)
+def _(ModelParams, is_script_mode, mo, params_form):
+    if is_script_mode:
+        model_params = ModelParams(**{k.replace("-", "_"): v for k, v in mo.cli_args().items()})
+    else:
+        model_params = ModelParams(**(params_form.value or {}))
+    return (model_params,)
+
+
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Simple PyTorch Bi-Encoder
@@ -287,92 +376,36 @@ def _(torch):
     return AutoTokenizer, BiEncoder, DataLoader
 
 
-@app.cell
-def _(
-    AutoTokenizer,
-    DataLoader,
-    batch_size,
-    max_length,
-    test_dataset,
-    train_dataset,
-    val_dataset,
-):
-    tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-
-    def collate_fn(batch):
-        headlines = [row["headline"] for row in batch]
-        leads = [row["lead"] for row in batch]
-        x_tokens = tokenizer(
-            headlines,
-            padding=True,
-            truncation=True,
-            max_length=max_length.value,
-            return_tensors="pt",
-        )
-        y_tokens = tokenizer(
-            leads,
-            padding=True,
-            truncation=True,
-            max_length=max_length.value,
-            return_tensors="pt",
-        )
-        return x_tokens, y_tokens
-
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size.value, shuffle=True, collate_fn=collate_fn
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size.value, shuffle=False, collate_fn=collate_fn
-    )
-    test_loader = DataLoader(
-        test_dataset, batch_size=batch_size.value, shuffle=False, collate_fn=collate_fn
-    )
-    return train_loader, val_loader
-
-
 @app.cell(column=2)
-def _(mo):
-    loss_name = mo.ui.dropdown(["softmax", "sigmoid"], value="softmax", label="loss")
-    epochs = mo.ui.slider(start=1, stop=5, step=1, value=1, label="epochs")
-    batch_size = mo.ui.slider(start=8, stop=64, step=8, value=32, label="batch size")
-    learning_rate = mo.ui.slider(
-        start=1e-5, stop=5e-4, step=1e-5, value=1e-4, label="learning rate"
-    )
-    max_length = mo.ui.slider(start=32, stop=192, step=16, value=96, label="max tokens")
-    train_button = mo.ui.run_button(label="Train bi-encoder")
-    mo.vstack([loss_name, epochs, batch_size, learning_rate, max_length, train_button])
-    return (
-        batch_size,
-        epochs,
-        learning_rate,
-        loss_name,
-        max_length,
-        train_button,
-    )
-
-
-@app.cell
 def _(
     BiEncoder,
-    epochs,
-    learning_rate,
-    loss_name,
+    env_config,
+    is_script_mode,
+    model_params,
+    params_form,
     sigmoid_loss,
     softmax_loss,
-    t,
     torch,
-    train_button,
     train_loader,
     val_loader,
+    wandb,
 ):
     training_log = []
 
-    if train_button.value:
+    if is_script_mode or params_form.value is not None:
+        if model_params.wandb_project:
+            env_config.require_valid()
+            wandb.init(
+                project=model_params.wandb_project,
+                name=model_params.run_name,
+                config=model_params.model_dump(),
+            )
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = BiEncoder().to(device)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate.value)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=model_params.learning_rate)
 
-        for epoch in range(epochs.value):
+        for epoch in range(model_params.epochs):
             model.train()
             train_total = 0.0
             train_batches = 0
@@ -382,10 +415,10 @@ def _(
                 x_emb = model.encode(**x_tokens)
                 y_emb = model.encode(**y_tokens)
 
-                if loss_name.value == "softmax":
-                    loss = softmax_loss(x_emb, y_emb, t=t.value)
+                if model_params.loss_name == "softmax":
+                    loss = softmax_loss(x_emb, y_emb, t=model_params.temperature)
                 else:
-                    loss = sigmoid_loss(x_emb, y_emb, t=t.value, b=model.bias)
+                    loss = sigmoid_loss(x_emb, y_emb, t=model_params.temperature, b=model.bias)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -406,10 +439,10 @@ def _(
                     y_emb = model.encode(**y_tokens)
                     val_x_all.append(x_emb)
                     val_y_all.append(y_emb)
-                    if loss_name.value == "softmax":
-                        val_loss = softmax_loss(x_emb, y_emb, t=t.value)
+                    if model_params.loss_name == "softmax":
+                        val_loss = softmax_loss(x_emb, y_emb, t=model_params.temperature)
                     else:
-                        val_loss = sigmoid_loss(x_emb, y_emb, t=t.value, b=model.bias)
+                        val_loss = sigmoid_loss(x_emb, y_emb, t=model_params.temperature, b=model.bias)
                     val_total += float(val_loss.item())
                     val_batches += 1
 
@@ -420,13 +453,62 @@ def _(
             targets = torch.arange(sim.shape[0], device=sim.device)
             val_recall_at_1 = (top1 == targets).float().mean().item()
 
-            training_log.append({
+            entry = {
                 "epoch": epoch + 1,
                 "train_loss": train_total / max(train_batches, 1),
                 "val_loss_in_batch": val_total / max(val_batches, 1),
                 "val_recall_at_1": val_recall_at_1,
-            })
+            }
+            training_log.append(entry)
+
+            if model_params.wandb_project:
+                wandb.log(entry)
+
+        if model_params.wandb_project:
+            wandb.finish()
     return (training_log,)
+
+
+@app.cell
+def _(
+    AutoTokenizer,
+    DataLoader,
+    model_params,
+    test_dataset,
+    train_dataset,
+    val_dataset,
+):
+    tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+
+    def collate_fn(batch):
+        headlines = [row["headline"] for row in batch]
+        leads = [row["lead"] for row in batch]
+        x_tokens = tokenizer(
+            headlines,
+            padding=True,
+            truncation=True,
+            max_length=model_params.max_length,
+            return_tensors="pt",
+        )
+        y_tokens = tokenizer(
+            leads,
+            padding=True,
+            truncation=True,
+            max_length=model_params.max_length,
+            return_tensors="pt",
+        )
+        return x_tokens, y_tokens
+
+    train_loader = DataLoader(
+        train_dataset, batch_size=model_params.batch_size, shuffle=True, collate_fn=collate_fn
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=model_params.batch_size, shuffle=False, collate_fn=collate_fn
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=model_params.batch_size, shuffle=False, collate_fn=collate_fn
+    )
+    return train_loader, val_loader
 
 
 @app.cell
@@ -435,12 +517,12 @@ def _(training_log):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     return
 
 
-@app.cell(column=3)
+@app.cell(column=3, hide_code=True)
 def _():
     return
 
