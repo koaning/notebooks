@@ -14,7 +14,7 @@ app = marimo.App(width="medium")
 
 with app.setup:
     from manim import (
-        Axes, Tex, Dot, DashedLine, VGroup,
+        Axes, Tex, Dot, DashedLine, VGroup, MovingCameraScene,
         Write, Create, FadeOut, FadeIn, GrowFromCenter, Transform,
         BLUE, ORANGE, GRAY, WHITE, UP, DOWN, RIGHT, LEFT,
     )
@@ -30,7 +30,7 @@ def _():
 
 
 @app.class_definition
-class BreadStory(Slide):
+class BreadStory(Slide, MovingCameraScene):
     def _make_axes(self, n_weeks):
         axes = Axes(
             x_range=[0, n_weeks, 26],
@@ -48,6 +48,14 @@ class BreadStory(Slide):
         x_label = Tex("Weeks", font_size=22).next_to(axes.x_axis, DOWN, buff=0.4)
         y_label = Tex(r"\$", font_size=28).next_to(axes.y_axis, LEFT, buff=0.3)
         return axes, VGroup(axes, x_label, y_label)
+
+    def _buy_mobjects(self, axes, rate, unc, n_weeks):
+        """Build line + band for a given buying rate/uncertainty."""
+        line = axes.plot(lambda x: rate * x, x_range=[0, n_weeks], color=BLUE)
+        lo = axes.plot(lambda x: (rate - unc) * x, x_range=[0, n_weeks])
+        hi = axes.plot(lambda x: (rate + unc) * x, x_range=[0, n_weeks])
+        band = axes.get_area(hi, bounded_graph=lo, x_range=(0, n_weeks), color=BLUE, opacity=0.15)
+        return line, band
 
     def _bake_mobjects(self, axes, machine, rate, unc, n_weeks):
         """Build line + band + label for a given baking rate/uncertainty."""
@@ -170,11 +178,87 @@ class BreadStory(Slide):
         )
         self.next_slide()
 
-        # --- Slide 3: Breakeven annotation ---
-        dashed = DashedLine(axes.c2p(bw, 0), axes.c2p(bw, bc), color=GRAY)
-        dot = Dot(axes.c2p(bw, bc), color=WHITE, radius=0.08)
+        # --- Slide 3: Reshape for simulation (steeper blue, flatter orange) ---
+        sim_buy_rate, sim_buy_unc = 12.0, 2.0
+        sim_bake_rate, sim_bake_unc = 1.50, 1.25
+        sim_machine = 400.0
+        sim_bw = sim_machine / (sim_buy_rate - sim_bake_rate)
+        sim_bc = sim_buy_rate * sim_bw
+
+        sim_buy_line, sim_buy_band = self._buy_mobjects(axes, sim_buy_rate, sim_buy_unc, n_weeks)
+        sim_bake_line, sim_bake_band, sim_bake_label = self._bake_mobjects(
+            axes, sim_machine, sim_bake_rate, sim_bake_unc, n_weeks
+        )
+        self.play(
+            Transform(buy_line, sim_buy_line),
+            Transform(buy_band, sim_buy_band),
+            Transform(bake_line, sim_bake_line),
+            Transform(bake_band, sim_bake_band),
+            Transform(bake_label, sim_bake_label),
+        )
+        self.next_slide()
+
+        # --- Slide 4: Breakeven annotation ---
+        dashed = DashedLine(axes.c2p(sim_bw, 0), axes.c2p(sim_bw, sim_bc), color=GRAY)
+        dot = Dot(axes.c2p(sim_bw, sim_bc), color=WHITE, radius=0.08)
 
         self.play(Create(dashed), GrowFromCenter(dot))
+        self.next_slide()
+
+        # --- Slide 5: Zoom into the breakeven area ---
+        self.play(FadeOut(bake_label))
+        self.play(
+            self.camera.frame.animate.scale(0.4).move_to(axes.c2p(sim_bw, sim_bc))
+        )
+        self.next_slide()
+
+        # --- Slide 6: Simulate sample lines within bands ---
+        # Scenario A: blue high (13.5), orange low (1.0) → early breakeven
+        sa_buy, sa_bake = 13.5, 1.0
+        sa_bw = sim_machine / (sa_buy - sa_bake)
+        sa_bc = sa_buy * sa_bw
+        sa_buy_line = axes.plot(lambda x: sa_buy * x, x_range=[0, n_weeks], color=BLUE, stroke_width=2)
+        sa_bake_line = axes.plot(lambda x: sim_machine + sa_bake * x, x_range=[0, n_weeks], color=ORANGE, stroke_width=2)
+        sa_dashed = DashedLine(axes.c2p(sa_bw, 0), axes.c2p(sa_bw, sa_bc), color=GRAY)
+        sa_dot = Dot(axes.c2p(sa_bw, sa_bc), color=WHITE, radius=0.05)
+        self.play(
+            Transform(buy_line, sa_buy_line),
+            Transform(bake_line, sa_bake_line),
+            Transform(dashed, sa_dashed),
+            Transform(dot, sa_dot),
+            self.camera.frame.animate.move_to(axes.c2p(sa_bw, sa_bc)),
+        )
+        self.next_slide()
+
+        # Scenario B: blue low (10.5), orange high (2.0) → late breakeven
+        sb_buy, sb_bake = 10.5, 2.0
+        sb_bw = sim_machine / (sb_buy - sb_bake)
+        sb_bc = sb_buy * sb_bw
+        sb_buy_line = axes.plot(lambda x: sb_buy * x, x_range=[0, n_weeks], color=BLUE, stroke_width=2)
+        sb_bake_line = axes.plot(lambda x: sim_machine + sb_bake * x, x_range=[0, n_weeks], color=ORANGE, stroke_width=2)
+        sb_dashed = DashedLine(axes.c2p(sb_bw, 0), axes.c2p(sb_bw, sb_bc), color=GRAY)
+        sb_dot = Dot(axes.c2p(sb_bw, sb_bc), color=WHITE, radius=0.05)
+        self.play(
+            Transform(buy_line, sb_buy_line),
+            Transform(bake_line, sb_bake_line),
+            Transform(dashed, sb_dashed),
+            Transform(dot, sb_dot),
+            self.camera.frame.animate.move_to(axes.c2p(sb_bw, sb_bc)),
+        )
+        self.next_slide()
+
+        # Scenario C: back to center
+        sc_buy_line = axes.plot(lambda x: sim_buy_rate * x, x_range=[0, n_weeks], color=BLUE, stroke_width=2)
+        sc_bake_line = axes.plot(lambda x: sim_machine + sim_bake_rate * x, x_range=[0, n_weeks], color=ORANGE, stroke_width=2)
+        sc_dashed = DashedLine(axes.c2p(sim_bw, 0), axes.c2p(sim_bw, sim_bc), color=GRAY)
+        sc_dot = Dot(axes.c2p(sim_bw, sim_bc), color=WHITE, radius=0.05)
+        self.play(
+            Transform(buy_line, sc_buy_line),
+            Transform(bake_line, sc_bake_line),
+            Transform(dashed, sc_dashed),
+            Transform(dot, sc_dot),
+            self.camera.frame.animate.move_to(axes.c2p(sim_bw, sim_bc)),
+        )
         self.next_slide()
 
 
