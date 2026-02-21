@@ -51,14 +51,19 @@ def _(mo):
 
 @app.cell
 def _(np):
+    from pathlib import Path
     from monarch.actor import Actor, endpoint, this_host
     from game import SushiGoGame
     from agent import NeuralAgent, RandomAgent, CHROMOSOME_SIZE
     from ga import GeneticAlgorithm
+    import game as _game_mod
+
+    # Capture the directory containing game.py so worker processes can find it
+    sushigo_dir = str(Path(_game_mod.__file__).resolve().parent)
 
     return (
         Actor, CHROMOSOME_SIZE, GeneticAlgorithm, NeuralAgent, RandomAgent,
-        SushiGoGame, endpoint, this_host,
+        SushiGoGame, endpoint, sushigo_dir, this_host,
     )
 
 
@@ -67,7 +72,13 @@ def _(Actor, endpoint, np):
     class Evaluator(Actor):
         """Monarch actor that evaluates a batch of agent chromosomes."""
 
-        def __init__(self, games_per_eval: int, seed: int):
+        def __init__(self, games_per_eval: int, seed: int, src_dir: str):
+            import sys
+
+            # Worker processes need the sushigo dir on sys.path
+            if src_dir not in sys.path:
+                sys.path.insert(0, src_dir)
+
             from game import SushiGoGame
             from agent import RandomAgent
 
@@ -145,7 +156,7 @@ def _(generations_slider, mo, n_workers_slider, pop_size_slider):
 async def _(
     CHROMOSOME_SIZE, Evaluator, GeneticAlgorithm, NeuralAgent,
     games_slider, generations_slider, mo, n_workers_slider, np,
-    pop_size_slider, run_btn, seed_input, this_host,
+    pop_size_slider, run_btn, seed_input, sushigo_dir, this_host,
 ):
     import time
 
@@ -174,7 +185,7 @@ async def _(
 
     mesh = this_host().spawn_procs(per_host={"w": n_workers})
     evaluators = mesh.spawn(
-        "eval", Evaluator, games_per_eval, seed,
+        "eval", Evaluator, games_per_eval, seed, sushigo_dir,
     )
 
     par_history = {"generation": [], "best": [], "mean": [], "worst": []}
