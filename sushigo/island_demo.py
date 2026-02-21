@@ -22,7 +22,10 @@ def _():
     import altair as alt
     import polars as pl
 
-    return alt, mo, np, pl
+    # CLI args override UI defaults: uv run island_demo.py -- --islands 4 --pop 120 ...
+    args = mo.cli_args()
+
+    return alt, args, mo, np, pl
 
 
 @app.cell(hide_code=True)
@@ -144,16 +147,21 @@ def _(Actor, endpoint):
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    n_islands_slider = mo.ui.slider(2, 8, value=4, step=1, label="Islands")
-    total_pop_slider = mo.ui.slider(40, 200, value=80, step=20, label="Total population")
-    generations_slider = mo.ui.slider(20, 100, value=40, step=10, label="Generations")
+def _(args, mo):
+    # CLI args override slider defaults:
+    #   uv run island_demo.py -- --islands 4 --pop 120 --gens 50 \
+    #       --interval 10 --migrants 2 --games 30 --seed 42
+    _def = lambda key, fallback: int(args.get(key, fallback))
+
+    n_islands_slider = mo.ui.slider(2, 8, value=_def("islands", 4), step=1, label="Islands")
+    total_pop_slider = mo.ui.slider(40, 400, value=_def("pop", 80), step=20, label="Total population")
+    generations_slider = mo.ui.slider(20, 200, value=_def("gens", 40), step=10, label="Generations")
     migration_interval_slider = mo.ui.slider(
-        2, 10, value=5, step=1, label="Migration interval (gens)"
+        2, 20, value=_def("interval", 5), step=1, label="Migration interval (gens)"
     )
-    n_migrants_slider = mo.ui.slider(1, 5, value=2, step=1, label="Migrants per round")
-    games_slider = mo.ui.slider(10, 50, value=20, step=5, label="Games per eval")
-    seed_input = mo.ui.number(value=42, start=0, stop=9999, label="Seed")
+    n_migrants_slider = mo.ui.slider(1, 5, value=_def("migrants", 2), step=1, label="Migrants per round")
+    games_slider = mo.ui.slider(10, 100, value=_def("games", 20), step=5, label="Games per eval")
+    seed_input = mo.ui.number(value=_def("seed", 42), start=0, stop=9999, label="Seed")
 
     mo.md("## Settings")
 
@@ -199,13 +207,15 @@ def _(
 
 @app.cell
 async def _(
-    GeneticAlgorithm, IslandActor, games_slider, generations_slider,
+    GeneticAlgorithm, IslandActor, args, games_slider, generations_slider,
     migration_interval_slider, mo, n_islands_slider, n_migrants_slider,
     np, run_btn, seed_input, sushigo_dir, this_host, total_pop_slider,
 ):
     import time
 
-    mo.stop(not run_btn.value, mo.md("*Click **Run Island Model GA** above to start.*"))
+    # Auto-run when invoked with CLI args; otherwise wait for button
+    if not args:
+        mo.stop(not run_btn.value, mo.md("*Click **Run Island Model GA** above to start.*"))
 
     # --- Unpack settings ---
     n_islands = n_islands_slider.value
