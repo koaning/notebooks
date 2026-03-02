@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.19.2"
+__generated_with = "0.20.2"
 app = marimo.App(width="medium")
 
 
@@ -54,6 +54,7 @@ def _(mo):
 def _():
     import marimo as mo
     from widget import GrpoGdpoWidget
+
     return GrpoGdpoWidget, mo
 
 
@@ -140,6 +141,7 @@ def _():
                 logits[i] += lr * grad
 
         return np.array(history)
+
     return (train_policy,)
 
 
@@ -160,6 +162,7 @@ def _():
             [r["correctness"], r["style"], r["conciseness"]]
             for r in rewards_list
         ], dtype=_np.float64)
+
     return (widget_rewards_to_array,)
 
 

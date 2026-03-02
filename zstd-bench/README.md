@@ -1,3 +1,8 @@
+---
+title: Readme
+marimo-version: 0.20.2
+---
+
 # Zstd Compression Classifiers
 
 Benchmarking classification via zstd compression dictionaries across text and image domains. Based on [Max Halford's blog post](https://maxhalford.github.io/blog/text-classification-zstd/).
