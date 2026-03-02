@@ -1,3 +1,8 @@
+---
+title: Readme
+marimo-version: 0.20.2
+---
+
 # MaxRL vs GRPO Benchmark
 
 Compares two advantage estimation methods (MaxRL and GRPO) on a Subset Sum task using Qwen models with LoRA fine-tuning. Based on the [Maximum Likelihood Reinforcement Learning](https://arxiv.org/abs/2602.02710) paper by Tajwar et al. (2026).

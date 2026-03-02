@@ -10,7 +10,7 @@
 
 import marimo
 
-__generated_with = "0.18.4"
+__generated_with = "0.20.2"
 app = marimo.App(width="medium")
 
 
@@ -23,6 +23,7 @@ def _():
     import shutil
     import os
     import numpy as np
+
     return mo, np, os, sys, time
 
 
@@ -45,6 +46,7 @@ def _(mo):
 def _():
     from bench_python import simulate_python, simulate_numpy
     from bench_numba import simulate_numba, warmup as warmup_numba
+
     return simulate_numba, simulate_numpy, simulate_python, warmup_numba
 
 
@@ -78,6 +80,7 @@ def _(os, sys, time):
         results = simulate_mojo_direct(n_prisoners, n_sims)
         elapsed = time.perf_counter() - start
         return elapsed, list(results)
+
     return (simulate_mojo_wrapper,)
 
 
@@ -107,6 +110,7 @@ def _(np, time):
         print(mean1, mean2)
         relative_diff = abs(mean1 - mean2) / max(mean1, mean2)
         return relative_diff < tolerance
+
     return benchmark, verify_distribution
 
 
