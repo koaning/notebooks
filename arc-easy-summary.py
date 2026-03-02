@@ -181,7 +181,7 @@ def _(mo):
 
 
 @app.cell
-def _(chart_df, mo, pl):
+def _(chart_df, pl):
     from scipy.stats import beta
     import numpy as np
 
@@ -221,7 +221,7 @@ def _(chart_df, mo, pl):
                     })
 
     sig_df = pl.DataFrame(sig_rows)
-    mo.ui.table(sig_df.to_dicts())
+    sig_df
     return
 
 
