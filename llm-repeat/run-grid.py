@@ -11,13 +11,14 @@ WANDB_BASE_URL = "https://api.inference.wandb.ai/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 WANDB_MODELS = [
-    "meta-llama/Llama-3.1-8B-Instruct",
-    "microsoft/Phi-4-mini-instruct",
+    # "meta-llama/Llama-3.1-8B-Instruct",
+    # "microsoft/Phi-4-mini-instruct",
+    "Qwen/Qwen3-30B-A3B-Instruct-2507"
 ]
 
 OPENROUTER_MODELS = [
-    "google/gemma-3n-e4b-it",
-    "qwen/qwen-2.5-7b-instruct",
+    # "google/gemma-3n-e4b-it",
+    # "qwen/qwen-2.5-7b-instruct",
 ]
 
 REPEAT_COUNTS = [1, 2, 3]

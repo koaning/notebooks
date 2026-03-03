@@ -108,7 +108,7 @@ def _(chart_df):
 
 
 @app.cell
-def _(chart_df, mo, pl):
+def _(chart_df, pl):
     import altair as alt
 
     _chart = (
@@ -116,30 +116,30 @@ def _(chart_df, mo, pl):
         .mark_bar(color="steelblue")
         .encode(
             x=alt.X("repeat_count:O", title="Repetitions"),
-            y=alt.Y("accuracy:Q", scale=alt.Scale(domain=[0.85, 1.0])),
+            y=alt.Y("accuracy:Q", scale=alt.Scale(domain=[0.0, 1.0])),
             column=alt.Column("model:N", title="Model"),
             row=alt.Row("prompt_order:N", title="Prompt Order"),
         )
-        .properties(width=200, height=200)
+        .properties(width=150, height=150)
     )
-    mo.ui.altair_chart(_chart)
+    _chart
     return (alt,)
 
 
 @app.cell
-def _(alt, chart_df, mo, pl):
+def _(alt, chart_df, pl):
     _chart = (
         alt.Chart(chart_df.filter(pl.col("output_format") == "structured"))
         .mark_bar(color="steelblue")
         .encode(
             x=alt.X("repeat_count:O", title="Repetitions"),
-            y=alt.Y("accuracy:Q", scale=alt.Scale(domain=[0.85, 1.0])),
+            y=alt.Y("accuracy:Q", scale=alt.Scale(domain=[0.0, 1.0])),
             column=alt.Column("model:N", title="Model"),
             row=alt.Row("prompt_order:N", title="Prompt Order"),
         )
-        .properties(width=200, height=200)
+        .properties(width=150, height=150)
     )
-    mo.ui.altair_chart(_chart)
+    _chart
     return
 
 
@@ -166,7 +166,7 @@ def _(mismatches, mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ## Statistical Significance
