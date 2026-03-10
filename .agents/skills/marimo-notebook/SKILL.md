@@ -5,6 +5,62 @@ description: Write a marimo notebook in a Python file in the right format.
 
 # Notes for marimo Notebooks
 
+marimo uses Python to create notebooks, unlike Jupyter which uses JSON. Here's an example notebook: 
+
+```python
+# /// script
+# dependencies = [
+#     "marimo",
+#     "numpy==2.4.3",
+# ]
+# requires-python = ">=3.14"
+# ///
+
+import marimo
+
+__generated_with = "0.20.4"
+app = marimo.App(width="medium")
+
+
+@app.cell
+def _():
+    import marimo as mo
+    import numpy as np
+
+    return mo, np
+
+
+@app.cell
+def _():
+    print("hello world")
+    return
+
+
+@app.cell
+def _(np, slider):
+    np.array([1,2,3]) + slider.value
+    return
+
+
+@app.cell
+def _(mo):
+    slider = mo.ui.slider(1, 10, 1, label="number to add")
+    slider
+    return (slider,)
+
+
+@app.cell
+def _():
+    return
+
+
+if __name__ == "__main__":
+    app.run()
+
+```
+
+Notice how the notebook is structured with functions can represent cell contents. Each cell is defined with the `@app.cell` decorator and the inputs/outputs of the function are the inputs/outputs of the cell. marimo usually takes care of the dependencies between cells automatically. 
+
 ## Running Marimo Notebooks
 
 ```bash
@@ -82,6 +138,10 @@ def _(is_script_mode, train_button, lr_slider, run_training, X_data, y_data):
             results = run_training(X_data, y_data, lr=lr_slider.value)
     return (results,)
 ```
+
+## State and Reactivity
+
+Variables between cells define the reactivity of the notebook for 99% of the use-cases out there. No special state management needed. Don't mutate objects across cells (e.g., `my_list.append()`); create new objects instead. Avoid `mo.state()` unless you need bidirectional UI sync or accumulated callback state. See [STATE.md](references/STATE.md) for details.
 
 ## Don't Guard Cells with `if` Statements
 
@@ -168,6 +228,8 @@ for _name, _model in items:
 
 ## PEP 723 Dependencies
 
+Notebooks created via `marimo edit --sandbox` have these dependencies added to the top of the file automatically but it is a good practice to make sure these exist when creating a notebook too: 
+
 ```python
 # /// script
 # requires-python = ">=3.12"
@@ -177,22 +239,6 @@ for _name, _model in items:
 # ]
 # ///
 ```
-
-## Prefer pathlib over os.path
-
-Use `pathlib.Path` for file path operations instead of `os.path`:
-
-```python
-# GOOD - use pathlib
-from pathlib import Path
-data_dir = Path(tempfile.mkdtemp())
-parquet_file = data_dir / "data.parquet"
-
-# BAD - avoid os.path
-import os
-parquet_file = os.path.join(temp_dir, "data.parquet")
-```
-
 
 ## marimo check 
 
@@ -212,8 +258,28 @@ If the user specifically wants you to use a marimo function, you can locally che
 uv --with marimo run python -c "import marimo as mo; help(mo.ui.form)"
 ```
 
+## tests 
+
+By default, marimo discovers and executes tests inside your notebook.
+When the optional `pytest` dependency is present, marimo runs `pytest` on cells that
+consist exclusively of test code - i.e. functions whose names start with `test_`. 
+If the user asks you to add tests, make sure to add the `pytest` dependency is added and that
+there is a cell that contains only test code.
+
+For more information on testing with pytest see [PYTEST.md](references/PYTEST.md)
+
+Once tests are added, you can run pytest from the commandline on the notebook to run pytest. 
+
+```
+pytest <notebook.py>
+```
+
 ## Additional resources
 
 - For SQL use in marimo see [SQL.md](references/SQL.md)
 - For UI elements in marimo [UI.md](references/UI.md)
 - For exposing functions/classes as top level imports [TOP-LEVEL-IMPORTS.md](references/TOP-LEVEL-IMPORTS.md)
+- For exporting notebooks (PDF, HTML, markdown, etc.) [EXPORTS.md](references/EXPORTS.md)
+- For state management and reactivity [STATE.md](references/STATE.md)
+- For deployment of marimo notebooks [DEPLOYMENT.md](references/DEPLOYMENT.md)
+- For custom interactive widgets with anywidget [ANYWIDGET.md](references/ANYWIDGET.md)

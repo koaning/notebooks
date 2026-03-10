@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "skills": {
+    "anywidget-generator": {
+      "source": "marimo-team/skills",
+      "sourceType": "github",
+      "computedHash": "7c8e9683f6ba53ed3079e1a6e28d81c7397104fb7f8eedd983eb968597a1714c"
+    },
+    "implement-paper": {
+      "source": "marimo-team/skills",
+      "sourceType": "github",
+      "computedHash": "f08d521800f34c952012f306e5429bb1e87527432566273083ea9f1bc96897e7"
+    },
+    "marimo-batch": {
+      "source": "marimo-team/skills",
+      "sourceType": "github",
+      "computedHash": "b697e72139093c633f2b34b56e0b02c69c5ebff53e4ebdd3c0fbe033a2af5f84"
+    },
+    "marimo-notebook": {
+      "source": "marimo-team/skills",
+      "sourceType": "github",
+      "computedHash": "078d832027a1811df696632b4fc8342ecf251d9f584339359abfee340a1fa195"
+    }
+  }
+}
