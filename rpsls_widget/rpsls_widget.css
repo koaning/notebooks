@@ -1,0 +1,32 @@
+.rpsls-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.rpsls-container svg {
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.node-label {
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
+.edge {
+  fill: none;
+  stroke-width: 1.8;
+}
+
+.node-circle {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.balance-label {
+  font-size: 14px;
+  font-weight: 500;
+  text-anchor: middle;
+}
