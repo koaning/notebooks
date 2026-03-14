@@ -61,6 +61,12 @@ function render({ model, el }) {
     .attr("height", height)
     .attr("viewBox", `0 0 ${width} ${height}`);
 
+  // Read CSS custom properties for theming
+  const cs = getComputedStyle(container);
+  const edgeColor = cs.getPropertyValue("--rpsls-edge-color").trim() || "#888";
+  const edgeDim = cs.getPropertyValue("--rpsls-edge-dim").trim() || "#e0e0e0";
+  const arrowFill = cs.getPropertyValue("--rpsls-arrow-fill").trim() || "#666";
+
   const defs = svg.append("defs");
 
   const edgeGroup = svg.append("g");
@@ -78,7 +84,7 @@ function render({ model, el }) {
     const refX = nodeRadius / 1.4 + 10;
 
     const markerConfigs = [
-      { id: "arrowhead", fill: "#666" },
+      { id: "arrowhead", fill: arrowFill },
       { id: "arrowhead-red", fill: "#e74c3c" },
       { id: "arrowhead-beats", fill: "#27ae60" },
       { id: "arrowhead-loses", fill: "#e67e22" },
@@ -208,7 +214,7 @@ function render({ model, el }) {
         .attr("y1", (d) => d.y1)
         .attr("x2", (d) => d.x2)
         .attr("y2", (d) => d.y2)
-        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : "#888"))
+        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : edgeColor))
         .attr("stroke-width", strokeWidth)
         .attr("stroke-opacity", 1);
 
@@ -231,7 +237,7 @@ function render({ model, el }) {
         .attr("y1", (d) => d.y1)
         .attr("x2", (d) => d.x2)
         .attr("y2", (d) => d.y2)
-        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : "#888"))
+        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : edgeColor))
         .attr("stroke-width", strokeWidth)
         .attr("stroke-opacity", 1);
     }
@@ -298,7 +304,7 @@ function render({ model, el }) {
         .attr("stroke", (d) => {
           if (d.source === idx) return "#27ae60";
           if (d.target === idx) return "#e67e22";
-          return "#e0e0e0";
+          return edgeDim;
         })
         .attr("stroke-width", (d) =>
           d.source === idx || d.target === idx ? strokeWidth * 2 : strokeWidth * 0.5
@@ -340,7 +346,7 @@ function render({ model, el }) {
       const applyLabels = animate ? allLabels.transition().duration(dur) : allLabels;
 
       applyLines
-        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : "#888"))
+        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : edgeColor))
         .attr("stroke-width", strokeWidth);
 
       allLines
