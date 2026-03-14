@@ -1,7 +1,23 @@
 .rpsls-container {
+  --rpsls-node-stroke: #fff;
+  --rpsls-label-fill: #333;
+  --rpsls-edge-color: #888;
+  --rpsls-edge-dim: #e0e0e0;
+  --rpsls-arrow-fill: #666;
+
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .rpsls-container {
+    --rpsls-node-stroke: #333;
+    --rpsls-label-fill: #ddd;
+    --rpsls-edge-color: #999;
+    --rpsls-edge-dim: #444;
+    --rpsls-arrow-fill: #999;
+  }
 }
 
 .rpsls-container svg {
@@ -11,6 +27,7 @@
 .node-label {
   font-size: 13px;
   font-weight: 600;
+  fill: var(--rpsls-label-fill);
   pointer-events: none;
   user-select: none;
 }
@@ -21,7 +38,7 @@
 }
 
 .node-circle {
-  stroke: #fff;
+  stroke: var(--rpsls-node-stroke);
   stroke-width: 2;
 }
 
