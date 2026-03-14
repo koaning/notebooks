@@ -40,15 +40,9 @@ def _(mo):
 
 
 @app.cell
-def _(RpslsWidget, mo, slider):
-    widget = mo.ui.anywidget(RpslsWidget(n=slider.value))
+def _(RpslsWidget, mo):
+    widget = mo.ui.anywidget(RpslsWidget(n=3))
     return (widget,)
-
-
-@app.cell
-def _(mo):
-    slider = mo.ui.slider(3, 45, value=5, label="Number of elements (n)", show_value=True)
-    return (slider,)
 
 
 @app.cell
@@ -64,14 +58,8 @@ def _(widget):
 
 
 @app.cell
-def _(mo, slider, widget):
-    mo.vstack([slider, widget])
-    return
-
-
-@app.cell(hide_code=True)
-def _(widget):
-    widget
+def _(mo, widget):
+    mo.vstack([widget])
     return
 
 
