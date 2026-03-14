@@ -52,8 +52,26 @@ def _(mo):
 
 
 @app.cell
+def _(widget):
+    widget.animate_highlight("A")
+    return
+
+
+@app.cell
+def _(widget):
+    widget.animate_node(1)
+    return
+
+
+@app.cell
 def _(mo, slider, widget):
     mo.vstack([slider, widget])
+    return
+
+
+@app.cell(hide_code=True)
+def _(widget):
+    widget
     return
 
 
