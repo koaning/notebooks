@@ -100,16 +100,31 @@ function render({ model, el }) {
     }
   }
 
+  // Mutable references so trait listeners can call current highlight functions
+  let currentHighlightNode = () => {};
+  let currentResetHighlight = () => {};
+  let prevN = model.get("n");
+
+  // 12 o'clock position (top of circle) — spawn/despawn point
+  const topX = centerX;
+  const topY = centerY - radius;
+
   function update() {
     const n = model.get("n");
     const names = getNames(n);
     const { edges, outDegree, isBalanced, k } = buildTournament(n);
+    const growing = n > prevN;
+    const shrinking = n < prevN;
+    prevN = n;
+
+    const nodeDur = model.get("_node_duration") || 400;
+    const edgeDur = model.get("_edge_duration") || 400;
 
     // Scale sizes down as n grows
     const nodeRadius = d3.scaleLinear().domain([3, 9]).range([22, 12]).clamp(true)(n);
     const markerSize = d3.scaleLinear().domain([3, 9]).range([8, 5]).clamp(true)(n);
     const strokeWidth = d3.scaleLinear().domain([3, 9]).range([2, 1]).clamp(true)(n);
-    const labelOffset = nodeRadius + 12;
+    const labelOffset = nodeRadius + (n <= 5 ? 24 : 12);
     const fontSize = d3.scaleLinear().domain([3, 9]).range([13, 10]).clamp(true)(n);
 
     updateMarkers(nodeRadius, markerSize);
@@ -136,6 +151,7 @@ function render({ model, el }) {
     const edgeDataMarked = edges.map((e, i) => ({
       source: e.source,
       target: e.target,
+      key: `${names[e.source]}->${names[e.target]}`,
       x1: nodes[e.source].x,
       y1: nodes[e.source].y,
       x2: nodes[e.target].x,
@@ -143,27 +159,142 @@ function render({ model, el }) {
       isExtra: i >= balancedEdgeCount,
     }));
 
-    const lines = edgeGroup.selectAll("line").data(edgeDataMarked);
-    lines.exit().remove();
-    const linesEnter = lines.enter().append("line");
-    const allLines = linesEnter
-      .merge(lines)
-      .attr("class", "edge")
-      .attr("x1", (d) => d.x1)
-      .attr("y1", (d) => d.y1)
-      .attr("x2", (d) => d.x2)
-      .attr("y2", (d) => d.y2)
-      .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : "#888"))
-      .attr("stroke-width", strokeWidth)
+    // Growing: nodes move + existing edges slide, then new edges grow from node
+    // Shrinking: removed edges fade out, then nodes move + remaining edges slide
+    const newestNode = nodes[n - 1];
+
+    const lines = edgeGroup.selectAll("line").data(edgeDataMarked, (d) => d.key);
+
+    // Exiting edges fade out
+    const exitingLines = lines.exit();
+    let exitCount = 0;
+    const exitTotal = exitingLines.size();
+    exitingLines
+      .transition()
+      .duration(edgeDur)
+      .attr("stroke-opacity", 0)
+      .remove()
+      .on("end", () => {
+        exitCount++;
+        if (shrinking && exitCount === exitTotal) {
+          animateNodesAndEdges();
+        }
+      });
+
+    // New edges start collapsed at the newest node's position
+    const linesEnter = lines
+      .enter()
+      .append("line")
+      .attr("stroke-opacity", 0)
+      .attr("x1", topX)
+      .attr("y1", topY)
+      .attr("x2", topX)
+      .attr("y2", topY);
+
+    const allLines = linesEnter.merge(lines).attr("class", "edge");
+
+    allLines
       .attr("stroke-dasharray", (d) => (d.isExtra ? "5,4" : "none"))
       .attr("marker-end", (d) =>
         d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
       );
 
-    // Hover helpers
-    function highlightNode(idx) {
-      // Dim all edges, then color outgoing green and incoming orange
-      allLines
+    // Move existing edges + nodes simultaneously
+    function animateNodesAndEdges() {
+      lines
+        .transition()
+        .duration(nodeDur)
+        .attr("x1", (d) => d.x1)
+        .attr("y1", (d) => d.y1)
+        .attr("x2", (d) => d.x2)
+        .attr("y2", (d) => d.y2)
+        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : "#888"))
+        .attr("stroke-width", strokeWidth)
+        .attr("stroke-opacity", 1);
+
+      moveNodes();
+    }
+
+    // Grow new edges from the new node's position
+    function animateNewEdges() {
+      // Snap to new node's resting position before growing outward
+      linesEnter
+        .attr("x1", newestNode.x)
+        .attr("y1", newestNode.y)
+        .attr("x2", newestNode.x)
+        .attr("y2", newestNode.y);
+
+      linesEnter
+        .transition()
+        .duration(edgeDur)
+        .attr("x1", (d) => d.x1)
+        .attr("y1", (d) => d.y1)
+        .attr("x2", (d) => d.x2)
+        .attr("y2", (d) => d.y2)
+        .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : "#888"))
+        .attr("stroke-width", strokeWidth)
+        .attr("stroke-opacity", 1);
+    }
+
+    // Move all nodes (and trigger edge animation when done)
+    function moveNodes() {
+      circles
+        .exit()
+        .transition()
+        .duration(nodeDur)
+        .attr("cx", topX)
+        .attr("cy", topY)
+        .attr("r", 0)
+        .remove();
+
+      let nodesFinished = 0;
+      const totalNodes = allCircles.size();
+      allCircles
+        .transition()
+        .duration(nodeDur)
+        .attr("cx", (d) => d.x)
+        .attr("cy", (d) => d.y)
+        .attr("r", nodeRadius)
+        .attr("fill", (d) =>
+          isBalanced ? balancedColor : colorScale(d.outDegree)
+        )
+        .on("end", () => {
+          nodesFinished++;
+          if (growing && nodesFinished === totalNodes) {
+            animateNewEdges();
+          }
+        });
+
+      allLabels
+        .transition()
+        .duration(nodeDur)
+        .attr("x", (d) => {
+          const dx = d.x - centerX;
+          return d.x + (dx / radius) * labelOffset;
+        })
+        .attr("y", (d) => {
+          const dy = d.y - centerY;
+          return d.y + (dy / radius) * labelOffset + 5;
+        })
+        .attr("font-size", fontSize)
+        .attr("opacity", 1);
+
+      labels
+        .exit()
+        .transition()
+        .duration(nodeDur)
+        .attr("opacity", 0)
+        .remove();
+    }
+
+    // Highlight helpers (with optional animation)
+    function highlightNode(idx, animate = false) {
+      const dur = model.get("_node_duration") || 400;
+      const applyLines = animate ? allLines.transition().duration(dur) : allLines;
+      const applyCircles = animate ? allCircles.transition().duration(dur) : allCircles;
+      const applyLabels = animate ? allLabels.transition().duration(dur) : allLabels;
+
+      applyLines
         .attr("stroke", (d) => {
           if (d.source === idx) return "#27ae60";
           if (d.target === idx) return "#e67e22";
@@ -171,7 +302,10 @@ function render({ model, el }) {
         })
         .attr("stroke-width", (d) =>
           d.source === idx || d.target === idx ? strokeWidth * 2 : strokeWidth * 0.5
-        )
+        );
+
+      // These can't be transitioned, apply immediately
+      allLines
         .attr("stroke-dasharray", (d) =>
           d.source === idx || d.target === idx ? "none" : (d.isExtra ? "5,4" : "none")
         )
@@ -185,13 +319,13 @@ function render({ model, el }) {
       allLines.filter((d) => d.source === idx || d.target === idx).raise();
 
       // Dim unrelated nodes
-      allCircles.attr("opacity", (d, i) => {
+      applyCircles.attr("opacity", (d, i) => {
         const connected = edgeDataMarked.some(
           (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
         );
         return i === idx || connected ? 1 : 0.3;
       });
-      allLabels.attr("opacity", (d, i) => {
+      applyLabels.attr("opacity", (d, i) => {
         const connected = edgeDataMarked.some(
           (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
         );
@@ -199,31 +333,35 @@ function render({ model, el }) {
       });
     }
 
-    function resetHighlight() {
-      allLines
+    function resetHighlight(animate = false) {
+      const dur = model.get("_node_duration") || 400;
+      const applyLines = animate ? allLines.transition().duration(dur) : allLines;
+      const applyCircles = animate ? allCircles.transition().duration(dur) : allCircles;
+      const applyLabels = animate ? allLabels.transition().duration(dur) : allLabels;
+
+      applyLines
         .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : "#888"))
-        .attr("stroke-width", strokeWidth)
+        .attr("stroke-width", strokeWidth);
+
+      allLines
         .attr("stroke-dasharray", (d) => (d.isExtra ? "5,4" : "none"))
         .attr("marker-end", (d) =>
           d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
         );
-      allCircles.attr("opacity", 1);
-      allLabels.attr("opacity", 1);
+      applyCircles.attr("opacity", 1);
+      applyLabels.attr("opacity", 1);
     }
 
-    // Nodes
-    const circles = nodeGroup.selectAll("circle").data(nodes);
-    circles.exit().remove();
-    const circlesEnter = circles.enter().append("circle");
-    const allCircles = circlesEnter
-      .merge(circles)
-      .attr("class", "node-circle")
-      .attr("cx", (d) => d.x)
-      .attr("cy", (d) => d.y)
-      .attr("r", nodeRadius)
-      .attr("fill", (d) =>
-        isBalanced ? balancedColor : colorScale(d.outDegree)
-      )
+    // Nodes — data join only; transitions handled by moveNodes()
+    const circles = nodeGroup.selectAll("circle").data(nodes, (d) => d.name);
+    const circlesEnter = circles
+      .enter()
+      .append("circle")
+      .attr("cx", topX)
+      .attr("cy", topY)
+      .attr("r", 0);
+    const allCircles = circlesEnter.merge(circles).attr("class", "node-circle");
+    allCircles
       .style("cursor", "pointer")
       .on("mouseenter", (event, d) => {
         const idx = nodes.indexOf(d);
@@ -231,24 +369,24 @@ function render({ model, el }) {
       })
       .on("mouseleave", () => resetHighlight());
 
-    // Labels
-    const labels = labelGroup.selectAll("text").data(nodes);
-    labels.exit().remove();
-    const labelsEnter = labels.enter().append("text");
-    const allLabels = labelsEnter
-      .merge(labels)
-      .attr("class", "node-label")
-      .attr("x", (d) => {
-        const dx = d.x - centerX;
-        return d.x + (dx / radius) * labelOffset;
-      })
-      .attr("y", (d) => {
-        const dy = d.y - centerY;
-        return d.y + (dy / radius) * labelOffset + 5;
-      })
+    // Labels — data join only; transitions handled by moveNodes()
+    const labels = labelGroup.selectAll("text").data(nodes, (d) => d.name);
+    const labelsEnter = labels.enter().append("text").attr("opacity", 0);
+    const allLabels = labelsEnter.merge(labels).attr("class", "node-label");
+    allLabels
       .attr("text-anchor", "middle")
-      .attr("font-size", fontSize)
       .text((d) => d.name);
+
+    // Kick off the animation chain
+    if (shrinking && exitTotal > 0) {
+      // Shrinking: edge exit callback will trigger animateNodesAndEdges
+    } else if (growing || shrinking) {
+      animateNodesAndEdges();
+    } else {
+      // Initial render
+      moveNodes();
+      animateNewEdges();
+    }
 
     // Balance text
     if (isBalanced) {
@@ -261,10 +399,28 @@ function render({ model, el }) {
         .text(`Not balanced: elements beat ${degrees} others (dashed = extra edges)`)
         .attr("fill", "#e74c3c");
     }
+
+    // Expose highlight functions for trait listeners
+    currentHighlightNode = highlightNode;
+    currentResetHighlight = resetHighlight;
   }
 
   update();
   model.on("change:n", update);
+
+  model.on("change:highlighted_node", () => {
+    const name = model.get("highlighted_node");
+    if (!name) {
+      currentResetHighlight(true);
+      return;
+    }
+    const n = model.get("n");
+    const names = getNames(n);
+    const idx = names.indexOf(name);
+    if (idx !== -1) {
+      currentHighlightNode(idx, true);
+    }
+  });
 }
 
 export default { render };
