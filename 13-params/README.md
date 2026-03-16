@@ -1,3 +1,8 @@
+---
+title: Readme
+marimo-version: 0.20.4
+---
+
 # 13 Parameters Is All You Need
 
 TinyLoRA training with GRPO on GSM8K math reasoning. Tracks experiments with WANDB.
