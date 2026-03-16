@@ -4,6 +4,7 @@
 #     "anywidget>=0.9.0",
 #     "marimo",
 #     "traitlets>=5.0.0",
+#     "wigglystuff==0.2.37",
 # ]
 # ///
 
@@ -46,8 +47,8 @@ def _(RpslsWidget, mo):
 
 
 @app.cell
-def _(widget):
-    widget.animate_highlight("A")
+def _():
+    # widget.animate_highlight("A")
     return
 
 
@@ -58,8 +59,8 @@ def _(widget):
 
 
 @app.cell
-def _(mo, widget):
-    mo.vstack([widget])
+def _(widget):
+    widget
     return
 
 
