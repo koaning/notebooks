@@ -5,7 +5,7 @@
 
 import marimo
 
-__generated_with = "0.18.4"
+__generated_with = "0.20.4"
 app = marimo.App(width="full")
 
 
@@ -18,6 +18,7 @@ def _():
     import anywidget
     import traitlets
     import marimo as mo
+
     return Path, anywidget, bisect, copy, mo, traitlets
 
 
@@ -128,6 +129,7 @@ def _(bisect, copy):
         if tree is None:
             return make_node([], [])
         return copy.deepcopy(tree)
+
     return (
         build_btree,
         insert_key_with_steps,
@@ -243,6 +245,7 @@ def _(
             for value in remaining:
                 root = insert_key_with_steps(root, value, max_keys, steps)
             return self._build_steps_view(steps, f"Remove {key}")
+
     return (BTreeWidget,)
 
 

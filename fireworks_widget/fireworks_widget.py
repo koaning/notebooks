@@ -5,7 +5,7 @@
 
 import marimo
 
-__generated_with = "0.18.4"
+__generated_with = "0.20.4"
 app = marimo.App(width="full")
 
 
@@ -15,6 +15,7 @@ def _():
     import anywidget
     import traitlets
     import marimo as mo
+
     return Path, anywidget, mo, traitlets
 
 
@@ -33,6 +34,7 @@ def _(Path, anywidget, traitlets):
         def launch(self):
             """Trigger fireworks animation from Python"""
             self.trigger += 1
+
     return (FireworksWidget,)
 
 

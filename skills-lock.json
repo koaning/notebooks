@@ -4,7 +4,7 @@
     "anywidget-generator": {
       "source": "marimo-team/skills",
       "sourceType": "github",
-      "computedHash": "7c8e9683f6ba53ed3079e1a6e28d81c7397104fb7f8eedd983eb968597a1714c"
+      "computedHash": "93a512dc9870809902459881640b041afe5fe460774e9b49a212d8d799922ab5"
     },
     "implement-paper": {
       "source": "marimo-team/skills",
@@ -19,7 +19,7 @@
     "marimo-notebook": {
       "source": "marimo-team/skills",
       "sourceType": "github",
-      "computedHash": "078d832027a1811df696632b4fc8342ecf251d9f584339359abfee340a1fa195"
+      "computedHash": "48a44d4a8cf223adabad6b28d12134eb8751f4ef4d867474d2f1737c8bf920a4"
     }
   }
 }
