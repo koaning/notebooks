@@ -1,12 +1,6 @@
 import * as d3 from "https://esm.sh/d3@7";
 
-const NAMES = {
-  3: ["Rock", "Paper", "Scissors"],
-  5: ["Rock", "Paper", "Scissors", "Lizard", "Spock"],
-};
-
 function getNames(n) {
-  if (NAMES[n]) return NAMES[n];
   return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
 }
 
@@ -17,7 +11,7 @@ function buildTournament(n) {
 
   for (let i = 0; i < n; i++) {
     for (let j = 1; j <= k; j++) {
-      edges.push({ source: i, target: (i + j) % n });
+      edges.push({ source: (i + j) % n, target: i });
     }
   }
 
@@ -27,9 +21,9 @@ function buildTournament(n) {
       const opposite = i + n / 2;
       // Alternate direction to spread imbalance
       if (i % 2 === 0) {
-        edges.push({ source: i, target: opposite });
-      } else {
         edges.push({ source: opposite, target: i });
+      } else {
+        edges.push({ source: i, target: opposite });
       }
     }
   }
@@ -66,6 +60,7 @@ function render({ model, el }) {
   const edgeColor = cs.getPropertyValue("--rpsls-edge-color").trim() || "#888";
   const edgeDim = cs.getPropertyValue("--rpsls-edge-dim").trim() || "#e0e0e0";
   const arrowFill = cs.getPropertyValue("--rpsls-arrow-fill").trim() || "#666";
+  const highlightStroke = cs.getPropertyValue("--rpsls-highlight-stroke").trim() || "#555";
 
   const defs = svg.append("defs");
 
@@ -176,9 +171,14 @@ function render({ model, el }) {
     let exitCount = 0;
     const exitTotal = exitingLines.size();
     exitingLines
+      .attr("marker-end", null)
       .transition()
       .duration(edgeDur)
       .attr("stroke-opacity", 0)
+      .attr("x1", topX)
+      .attr("y1", topY)
+      .attr("x2", topX)
+      .attr("y2", topY)
       .remove()
       .on("end", () => {
         exitCount++;
@@ -199,7 +199,10 @@ function render({ model, el }) {
 
     const allLines = linesEnter.merge(lines).attr("class", "edge");
 
-    allLines
+    // Set marker-end only on existing (updating) lines — entering lines
+    // are collapsed to a point so markers would be visible at 12 o'clock.
+    // Entering lines get their markers in animateNewEdges().
+    lines
       .attr("stroke-dasharray", (d) => (d.isExtra ? "5,4" : "none"))
       .attr("marker-end", (d) =>
         d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
@@ -218,6 +221,24 @@ function render({ model, el }) {
         .attr("stroke-width", strokeWidth)
         .attr("stroke-opacity", 1);
 
+      // When shrinking, new edges from topology change also need to animate in
+      if (shrinking && linesEnter.size() > 0) {
+        linesEnter
+          .attr("stroke-dasharray", (d) => (d.isExtra ? "5,4" : "none"))
+          .attr("marker-end", (d) =>
+            d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
+          )
+          .transition()
+          .duration(nodeDur)
+          .attr("x1", (d) => d.x1)
+          .attr("y1", (d) => d.y1)
+          .attr("x2", (d) => d.x2)
+          .attr("y2", (d) => d.y2)
+          .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : edgeColor))
+          .attr("stroke-width", strokeWidth)
+          .attr("stroke-opacity", 1);
+      }
+
       moveNodes();
     }
 
@@ -231,6 +252,10 @@ function render({ model, el }) {
         .attr("y2", newestNode.y);
 
       linesEnter
+        .attr("stroke-dasharray", (d) => (d.isExtra ? "5,4" : "none"))
+        .attr("marker-end", (d) =>
+          d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
+        )
         .transition()
         .duration(edgeDur)
         .attr("x1", (d) => d.x1)
@@ -324,13 +349,16 @@ function render({ model, el }) {
       // Raise connected edges above dimmed ones in the DOM
       allLines.filter((d) => d.source === idx || d.target === idx).raise();
 
-      // Dim unrelated nodes
-      applyCircles.attr("opacity", (d, i) => {
-        const connected = edgeDataMarked.some(
-          (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
-        );
-        return i === idx || connected ? 1 : 0.3;
-      });
+      // Dim unrelated nodes, highlight selected node border
+      applyCircles
+        .attr("opacity", (d, i) => {
+          const connected = edgeDataMarked.some(
+            (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
+          );
+          return i === idx || connected ? 1 : 0.3;
+        })
+        .style("stroke", (d, i) => (i === idx ? highlightStroke : null))
+        .style("stroke-width", (d, i) => (i === idx ? "4px" : null));
       applyLabels.attr("opacity", (d, i) => {
         const connected = edgeDataMarked.some(
           (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
@@ -354,7 +382,7 @@ function render({ model, el }) {
         .attr("marker-end", (d) =>
           d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
         );
-      applyCircles.attr("opacity", 1);
+      applyCircles.attr("opacity", 1).style("stroke", null).style("stroke-width", null);
       applyLabels.attr("opacity", 1);
     }
 

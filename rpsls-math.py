@@ -4,6 +4,7 @@
 #     "anywidget>=0.9.0",
 #     "marimo",
 #     "traitlets>=5.0.0",
+#     "wigglystuff==0.2.37",
 # ]
 # ///
 
@@ -40,44 +41,65 @@ def _(mo):
 
 
 @app.cell
-def _(RpslsWidget, mo, slider):
-    widget = mo.ui.anywidget(RpslsWidget(n=slider.value))
+def _(RpslsWidget, mo):
+    widget = mo.ui.anywidget(RpslsWidget(n=3))
     return (widget,)
 
 
 @app.cell
-def _(mo):
-    slider = mo.ui.slider(3, 45, value=5, label="Number of elements (n)", show_value=True)
-    return (slider,)
-
-
-@app.cell
-def _(widget):
-    widget.animate_highlight("A")
-    return
-
-
-@app.cell
-def _(widget):
-    widget.animate_node(1)
-    return
-
-
-@app.cell
-def _(mo, slider, widget):
-    mo.vstack([slider, widget])
-    return
-
-
-@app.cell(hide_code=True)
 def _(widget):
     widget
     return
 
 
 @app.cell
-def _():
+def _(mo):
+    from wigglystuff import KeystrokeWidget
+
+    keystroke = mo.ui.anywidget(KeystrokeWidget())
+    keystroke
+    return (keystroke,)
+
+
+@app.cell
+def _(keystroke):
+    keystroke.last_key["key"]
     return
+
+
+@app.cell
+def _(get_highlight, keystroke, set_highlight, widget):
+    names = "abcdefghijklmnopqrstuvwxyz".upper()
+
+    if keystroke.last_key["key"] == "ArrowRight":
+        widget.animate_node(1)
+        set_highlight(-1)
+    if keystroke.last_key["key"] == "ArrowLeft":
+        widget.animate_node(-1)
+        set_highlight(-1)
+    if keystroke.last_key["key"] == "ArrowUp":
+        set_highlight(lambda _: (_ + 1) % widget.n)
+    if keystroke.last_key["key"] == "ArrowDown":
+        set_highlight(lambda _: (_ - 1) % widget.n)
+    if keystroke.last_key["key"] == "q":
+        set_highlight(-1)
+        widget.clear_highlight()
+
+    if get_highlight() >= 0:
+        widget.animate_highlight(names[get_highlight()])
+    return
+
+
+@app.cell
+def _(get_highlight):
+    get_highlight()
+    return
+
+
+@app.cell
+def _(mo):
+    get_highlight, set_highlight = mo.state(-1)
+    return get_highlight, set_highlight
 
 
 if __name__ == "__main__":

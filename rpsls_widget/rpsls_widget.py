@@ -53,3 +53,13 @@ class RpslsWidget(anywidget.AnyWidget):
             self.highlighted_node = ""
         else:
             self.highlighted_node = name
+
+    def clear_highlight(self, duration=400):
+        """Remove any active node highlight.
+
+        Args:
+            duration: Animation duration in milliseconds.
+        """
+        self._node_duration = duration
+        self._edge_duration = duration
+        self.highlighted_node = ""

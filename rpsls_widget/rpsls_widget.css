@@ -4,6 +4,7 @@
   --rpsls-edge-color: #888;
   --rpsls-edge-dim: #e0e0e0;
   --rpsls-arrow-fill: #666;
+  --rpsls-highlight-stroke: #555;
 
   display: flex;
   justify-content: center;
@@ -17,6 +18,7 @@
     --rpsls-edge-color: #999;
     --rpsls-edge-dim: #444;
     --rpsls-arrow-fill: #999;
+    --rpsls-highlight-stroke: #ccc;
   }
 }
 
