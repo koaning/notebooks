@@ -60,6 +60,7 @@ function render({ model, el }) {
   const edgeColor = cs.getPropertyValue("--rpsls-edge-color").trim() || "#888";
   const edgeDim = cs.getPropertyValue("--rpsls-edge-dim").trim() || "#e0e0e0";
   const arrowFill = cs.getPropertyValue("--rpsls-arrow-fill").trim() || "#666";
+  const highlightStroke = cs.getPropertyValue("--rpsls-highlight-stroke").trim() || "#555";
 
   const defs = svg.append("defs");
 
@@ -220,6 +221,24 @@ function render({ model, el }) {
         .attr("stroke-width", strokeWidth)
         .attr("stroke-opacity", 1);
 
+      // When shrinking, new edges from topology change also need to animate in
+      if (shrinking && linesEnter.size() > 0) {
+        linesEnter
+          .attr("stroke-dasharray", (d) => (d.isExtra ? "5,4" : "none"))
+          .attr("marker-end", (d) =>
+            d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
+          )
+          .transition()
+          .duration(nodeDur)
+          .attr("x1", (d) => d.x1)
+          .attr("y1", (d) => d.y1)
+          .attr("x2", (d) => d.x2)
+          .attr("y2", (d) => d.y2)
+          .attr("stroke", (d) => (d.isExtra ? "#e74c3c" : edgeColor))
+          .attr("stroke-width", strokeWidth)
+          .attr("stroke-opacity", 1);
+      }
+
       moveNodes();
     }
 
@@ -330,13 +349,16 @@ function render({ model, el }) {
       // Raise connected edges above dimmed ones in the DOM
       allLines.filter((d) => d.source === idx || d.target === idx).raise();
 
-      // Dim unrelated nodes
-      applyCircles.attr("opacity", (d, i) => {
-        const connected = edgeDataMarked.some(
-          (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
-        );
-        return i === idx || connected ? 1 : 0.3;
-      });
+      // Dim unrelated nodes, highlight selected node border
+      applyCircles
+        .attr("opacity", (d, i) => {
+          const connected = edgeDataMarked.some(
+            (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
+          );
+          return i === idx || connected ? 1 : 0.3;
+        })
+        .style("stroke", (d, i) => (i === idx ? highlightStroke : null))
+        .style("stroke-width", (d, i) => (i === idx ? "4px" : null));
       applyLabels.attr("opacity", (d, i) => {
         const connected = edgeDataMarked.some(
           (e) => (e.source === idx && e.target === i) || (e.target === idx && e.source === i)
@@ -360,7 +382,7 @@ function render({ model, el }) {
         .attr("marker-end", (d) =>
           d.isExtra ? "url(#arrowhead-red)" : "url(#arrowhead)"
         );
-      applyCircles.attr("opacity", 1);
+      applyCircles.attr("opacity", 1).style("stroke", null).style("stroke-width", null);
       applyLabels.attr("opacity", 1);
     }
 

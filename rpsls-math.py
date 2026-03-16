@@ -47,26 +47,59 @@ def _(RpslsWidget, mo):
 
 
 @app.cell
-def _():
-    # widget.animate_highlight("A")
-    return
-
-
-@app.cell
-def _(widget):
-    widget.animate_node(1)
-    return
-
-
-@app.cell
 def _(widget):
     widget
     return
 
 
 @app.cell
-def _():
+def _(mo):
+    from wigglystuff import KeystrokeWidget
+
+    keystroke = mo.ui.anywidget(KeystrokeWidget())
+    keystroke
+    return (keystroke,)
+
+
+@app.cell
+def _(keystroke):
+    keystroke.last_key["key"]
     return
+
+
+@app.cell
+def _(get_highlight, keystroke, set_highlight, widget):
+    names = "abcdefghijklmnopqrstuvwxyz".upper()
+
+    if keystroke.last_key["key"] == "ArrowRight":
+        widget.animate_node(1)
+        set_highlight(-1)
+    if keystroke.last_key["key"] == "ArrowLeft":
+        widget.animate_node(-1)
+        set_highlight(-1)
+    if keystroke.last_key["key"] == "ArrowUp":
+        set_highlight(lambda _: (_ + 1) % widget.n)
+    if keystroke.last_key["key"] == "ArrowDown":
+        set_highlight(lambda _: (_ - 1) % widget.n)
+    if keystroke.last_key["key"] == "q":
+        set_highlight(-1)
+        widget.clear_highlight()
+
+    if get_highlight() >= 0:
+        widget.animate_highlight(names[get_highlight()])
+    return
+
+
+@app.cell
+def _(get_highlight):
+    get_highlight()
+    return
+
+
+@app.cell
+def _(mo):
+    get_highlight, set_highlight = mo.state(-1)
+    return get_highlight, set_highlight
 
 
 if __name__ == "__main__":
