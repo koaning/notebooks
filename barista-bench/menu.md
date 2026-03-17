@@ -1,3 +1,8 @@
+---
+title: Menu
+marimo-version: 0.20.4
+---
+
 # BARISTA BENCH: OFFICIAL MENU & RULES (V2)
 
 ## 1. HOT COFFEES
