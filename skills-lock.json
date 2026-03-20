@@ -20,6 +20,11 @@
       "source": "marimo-team/skills",
       "sourceType": "github",
       "computedHash": "48a44d4a8cf223adabad6b28d12134eb8751f4ef4d867474d2f1737c8bf920a4"
+    },
+    "marimo-pair": {
+      "source": "marimo-team/marimo-pair",
+      "sourceType": "github",
+      "computedHash": "4b98f99e850d369d13bc0451bf6a08f665838ffc9f8fc7f51d62f1b5ebaf5515"
     }
   }
 }
