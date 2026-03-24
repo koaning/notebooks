@@ -56,11 +56,18 @@ def _(Image, ImageDraw, io):
 @app.cell
 def _(mo):
     upload = mo.ui.file(kind="button", label="Upload Screenshot")
-    c_re = mo.ui.slider(0.1, 4.0, step=0.01, value=1.0, label="Scale ($c_{re}$)")
-    c_im = mo.ui.slider(-2.0, 2.0, step=0.01, value=0.0, label="Twist ($c_{im}$)")
-    zoom = mo.ui.slider(0.0, 1.0, step=0.01, value=0.0, label="Zoom Depth")
+    c_re = mo.ui.slider(0.1, 7.0, step=0.01, value=1.0, label="Scale ($c_{re}$)")
+    c_im = mo.ui.slider(-7.0, 7.0, step=0.01, value=0.0, label="Twist ($c_{im}$)")
+    zoom = mo.ui.slider(0.0, 10.0, step=0.01, value=0.0, label="Zoom Depth")
     view_mode = mo.ui.radio(["Spiral Space", "Log Space"], value="Spiral Space", label="View")
     return c_im, c_re, upload, view_mode, zoom
+
+
+@app.cell
+def _():
+    from wigglystuff import Paint
+
+    return (Paint,)
 
 
 @app.cell
@@ -114,33 +121,35 @@ def _(Image, map_coordinates, mo, np):
 
 
 @app.cell
-def _(apply_droste, c_im, c_re, get_source_image, mo, upload, view_mode, zoom):
-    src_img = get_source_image(upload.value)
+def _(apply_droste, c_im, c_re, mo, paint, upload, view_mode, zoom):
+    src_img = paint.get_pil()
     res_img = apply_droste(src_img, c_re.value, c_im.value, zoom.value, view_mode.value)
 
     mo.md(
         f"""
         # 3Blue1Brown Droste Simulator
-        {mo.hstack([upload, view_mode], justify="space-between")}
-    
-        ### Controls
-        {mo.hstack([c_re, c_im, zoom], justify="start")}
-    
-        ---
-        ### Transformation Result
-        {mo.hstack([src_img, res_img], justify="space-around")}
-        """
+        {upload}"""
     )
+    return res_img, src_img
+
+
+@app.cell
+def _(Paint, get_source_image, mo, upload):
+    _src_img = get_source_image(upload.value)
+    paint = mo.ui.anywidget(Paint(init_image=_src_img))
+    paint
+    return (paint,)
+
+
+@app.cell
+def _(c_im, c_re, mo, view_mode, zoom):
+    mo.hstack([c_re, c_im, zoom, view_mode], justify="start")
     return
 
 
 @app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
+def _(mo, res_img, src_img):
+    mo.hstack([src_img, res_img], justify="start")
     return
 
 
