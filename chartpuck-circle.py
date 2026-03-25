@@ -423,11 +423,15 @@ def _(map_coordinates, np):
         px_x = (src.real - plane_bounds[0]) / (plane_bounds[1] - plane_bounds[0]) * w
         px_y = (src.imag - plane_bounds[0]) / (plane_bounds[1] - plane_bounds[0]) * h
 
+        # Mask for pixels that map to valid input coordinates
+        valid = (px_x >= 0) & (px_x < w) & (px_y >= 0) & (px_y < h) & np.isfinite(px_x) & np.isfinite(px_y)
+
         channels = []
         for i in range(3):
-            ch = map_coordinates(img_arr[..., i], [px_y, px_x], order=1, mode="wrap")
+            ch = map_coordinates(img_arr[..., i], [px_y, px_x], order=1, mode="constant", cval=0)
             channels.append(ch)
-        return np.stack(channels, axis=-1)
+        alpha = (valid * 255).astype(np.uint8)
+        return np.dstack([np.stack(channels, axis=-1), alpha])
 
     return (map_image_through,)
 
