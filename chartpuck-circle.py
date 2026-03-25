@@ -17,17 +17,16 @@ __generated_with = "0.21.1"
 app = marimo.App(width="full")
 
 
-app._unparsable_cell(
-    r"""
-    jimport marimo as mo
+@app.cell
+def _():
+    import marimo as mo
     import numpy as np
     import matplotlib
     matplotlib.rcParams["figure.dpi"] = 72
     import matplotlib.pyplot as plt
     from wigglystuff import ChartPuck
-    """,
-    name="_"
-)
+
+    return ChartPuck, mo, np, plt
 
 
 @app.cell
@@ -150,7 +149,7 @@ def _(Image, ImageDraw):
         for row in range(0, height, tile_size):
             for col in range(0, width, tile_size):
                 if (row // tile_size + col // tile_size) % 2 == 0:
-                    draw.rectangle([col, row, col + tile_size, row + tile_size], fill="#1f77b4")
+                    draw.rectangle([col, row, col + tile_size, row + tile_size], fill="#b0b0b0")
         return img
 
     log_img = make_checkerboard()
@@ -181,7 +180,259 @@ def _(map_coordinates, np):
 
 
 @app.cell
-def _():
+def _(mo):
+    mapping_dropdown = mo.ui.dropdown(
+        options={
+            "z²": "z_squared",
+            "1/z": "inversion",
+            "z + 1/z (Joukowski)": "joukowski",
+            "e^z": "exp",
+            "log(z)": "log",
+        },
+        value="z²",
+        label="Mapping",
+    )
+    return (mapping_dropdown,)
+
+
+@app.cell
+def _(np):
+    def apply_mapping(z, name):
+        if name == "z_squared":
+            return z ** 2
+        elif name == "inversion":
+            return 1.0 / np.where(np.abs(z) < 1e-9, 1e-9, z)
+        elif name == "joukowski":
+            safe_z = np.where(np.abs(z) < 1e-9, 1e-9, z)
+            return safe_z + 1.0 / safe_z
+        elif name == "exp":
+            return np.exp(z)
+        elif name == "log":
+            return np.log(np.where(np.abs(z) < 1e-9, 1e-9, z) + 0j)
+        return z
+
+    return (apply_mapping,)
+
+
+@app.cell
+def _(ChartPuck, mo, np):
+    bounds = (-5, 5)
+    radii = [0.3, 0.6, 1.0]
+    colors = ["#e63946", "#457b9d", "#2a9d8f"]
+    n_pts = 200
+
+    def draw_input_circles(ax, widget):
+        cx, cy = widget.x[0], widget.y[0]
+        t = np.linspace(0, 2 * np.pi, n_pts)
+        for rad, col in zip(radii, colors):
+            ax.plot(cx + rad * np.cos(t), cy + rad * np.sin(t), color=col, linewidth=2)
+        ax.axhline(0, color="black", linewidth=0.5)
+        ax.axvline(0, color="black", linewidth=0.5)
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(bounds)
+        ax.set_ylim(bounds)
+        ax.set_aspect("equal")
+        ax.set_title("Input: z")
+
+    mapping_puck = mo.ui.anywidget(
+        ChartPuck.from_callback(
+            draw_fn=draw_input_circles,
+            x_bounds=bounds,
+            y_bounds=bounds,
+            figsize=(6, 6),
+            x=2.0,
+            y=1.0,
+            puck_radius=6,
+            throttle=100,
+        )
+    )
+    return bounds, colors, mapping_puck, radii
+
+
+@app.cell
+def _(apply_mapping, np):
+    def draw_mapped_circles(ax, cx, cy, radii, colors, mapping_name, n_pts=200):
+        """Draw circles centered at (cx, cy) mapped through a function onto ax."""
+        t = np.linspace(0, 2 * np.pi, n_pts)
+        for rad, col in zip(radii, colors):
+            z_in = (cx + rad * np.cos(t)) + 1j * (cy + rad * np.sin(t))
+            z_out = apply_mapping(z_in, mapping_name)
+            ax.plot(z_out.real, z_out.imag, color=col, linewidth=2)
+        center_mapped = apply_mapping(cx + 1j * cy, mapping_name)
+        ax.plot(center_mapped.real, center_mapped.imag, "o", color="#e63946", markersize=10, zorder=5)
+
+    return (draw_mapped_circles,)
+
+
+@app.cell
+def _(
+    bounds,
+    colors,
+    draw_mapped_circles,
+    mapping_dropdown,
+    mapping_puck,
+    mo,
+    plt,
+    radii,
+):
+    fig_out, ax_out = plt.subplots(figsize=(6, 6))
+    draw_mapped_circles(
+        ax_out,
+        mapping_puck.x[0], mapping_puck.y[0],
+        radii, colors, mapping_dropdown.value,
+    )
+    ax_out.axhline(0, color="black", linewidth=0.5)
+    ax_out.axvline(0, color="black", linewidth=0.5)
+    ax_out.grid(True, alpha=0.3)
+    ax_out.set_xlim(bounds)
+    ax_out.set_ylim(bounds)
+    ax_out.set_aspect("equal")
+    ax_out.set_title(f"Output: f(z) = {mapping_dropdown.value}")
+
+    mo.hstack([mapping_puck, fig_out], justify="start")
+    return
+
+
+@app.cell
+def _(mapping_dropdown, mo, texture_dropdown):
+    mo.hstack([mapping_dropdown, texture_dropdown], justify="start")
+    return
+
+
+@app.cell
+def _(mo):
+    texture_dropdown = mo.ui.dropdown(
+        options={
+            "Checkerboard": "checkerboard",
+            "Color Spectrum": "spectrum",
+            "Polar Grid": "polar_grid",
+        },
+        value="Checkerboard",
+        label="Texture",
+    )
+    return (texture_dropdown,)
+
+
+@app.cell
+def _(Image, ImageDraw, np):
+    def make_texture(name, width=400, height=400):
+        if name == "checkerboard":
+            tile_size = 50
+            img = Image.new("RGB", (width, height), "white")
+            draw = ImageDraw.Draw(img)
+            for row in range(0, height, tile_size):
+                for col in range(0, width, tile_size):
+                    if (row // tile_size + col // tile_size) % 2 == 0:
+                        draw.rectangle([col, row, col + tile_size, row + tile_size], fill="#b0b0b0")
+            return np.array(img)
+        elif name == "spectrum":
+            x = np.linspace(0, 1, width)
+            y = np.linspace(0, 1, height)
+            gx, gy = np.meshgrid(x, y)
+            r = (255 * gx).astype(np.uint8)
+            g = (255 * gy).astype(np.uint8)
+            b = (255 * (1 - gx)).astype(np.uint8)
+            return np.stack([r, g, b], axis=-1)
+        elif name == "polar_grid":
+            img = Image.new("RGB", (width, height), "white")
+            draw = ImageDraw.Draw(img)
+            cx, cy = width // 2, height // 2
+            for ring in range(20, max(width, height), 40):
+                draw.ellipse([cx - ring, cy - ring, cx + ring, cy + ring], outline="#457b9d", width=1)
+            for angle_deg in range(0, 360, 30):
+                angle = np.radians(angle_deg)
+                ex = int(cx + max(width, height) * np.cos(angle))
+                ey = int(cy + max(width, height) * np.sin(angle))
+                draw.line([(cx, cy), (ex, ey)], fill="#457b9d", width=1)
+            return np.array(img)
+
+    return (make_texture,)
+
+
+@app.cell
+def _(map_coordinates, np):
+    def map_image_through(img_arr, mapping_name, output_size=400, plane_bounds=(-5, 5)):
+        h, w = img_arr.shape[:2]
+        lin = np.linspace(plane_bounds[0], plane_bounds[1], output_size)
+        gx, gy = np.meshgrid(lin, lin)
+        z = gx + 1j * gy
+
+        if mapping_name == "z_squared":
+            src = np.sqrt(z + 0j)
+        elif mapping_name == "inversion":
+            safe_z = np.where(np.abs(z) < 1e-9, 1e-9, z)
+            src = 1.0 / safe_z
+        elif mapping_name == "joukowski":
+            # Inverse of w = z + 1/z is z = (w ± sqrt(w²-4))/2
+            disc = np.sqrt(z**2 - 4 + 0j)
+            src = (z + disc) / 2
+        elif mapping_name == "exp":
+            src = np.log(z + 0j)
+        elif mapping_name == "log":
+            src = np.exp(z)
+        else:
+            src = z
+
+        px_x = (src.real - plane_bounds[0]) / (plane_bounds[1] - plane_bounds[0]) * w
+        px_y = (src.imag - plane_bounds[0]) / (plane_bounds[1] - plane_bounds[0]) * h
+
+        channels = []
+        for i in range(3):
+            ch = map_coordinates(img_arr[..., i], [px_y, px_x], order=1, mode="wrap")
+            channels.append(ch)
+        return np.stack(channels, axis=-1)
+
+    return (map_image_through,)
+
+
+@app.cell
+def _(np):
+    def draw_input_circles_on(ax, cx, cy, radii, colors, n_pts=200):
+        """Draw concentric circles centered at (cx, cy) on ax."""
+        t = np.linspace(0, 2 * np.pi, n_pts)
+        for rad, col in zip(radii, colors):
+            ax.plot(cx + rad * np.cos(t), cy + rad * np.sin(t), color=col, linewidth=2)
+        ax.plot(cx, cy, "o", color="#e63946", markersize=10, zorder=5)
+
+    return (draw_input_circles_on,)
+
+
+@app.cell
+def _(
+    colors,
+    div,
+    draw_input_circles_on,
+    draw_mapped_circles,
+    make_texture,
+    map_image_through,
+    mapping_dropdown,
+    mapping_puck,
+    mo,
+    plt,
+    radii,
+    texture_dropdown,
+):
+    texture = make_texture(texture_dropdown.value)
+    mapped_texture = map_image_through(texture, mapping_dropdown.value)
+    mcx, mcy = mapping_puck.x[0], mapping_puck.y[0]
+
+    fig_src, ax_src = plt.subplots(figsize=(6, 6))
+    ax_src.imshow(texture, extent=(-5, 5, -5, 5), origin="lower")
+    draw_input_circles_on(ax_src, mcx, mcy, radii, colors)
+    ax_src.set_xlim(-5, 5)
+    ax_src.set_ylim(-5, 5)
+    ax_src.set_aspect("equal")
+    ax_src.set_title("Input texture")
+
+    fig_dst, ax_dst = plt.subplots(figsize=(6, 6))
+    ax_dst.imshow(mapped_texture, extent=(-5, 5, -5, 5), origin="lower")
+    draw_mapped_circles(ax_dst, mcx, mcy, radii, colors, mapping_dropdown.value)
+    ax_dst.set_xlim(-5, 5)
+    ax_dst.set_ylim(-5, 5)
+    ax_dst.set_aspect("equal")
+    ax_dst.set_title(f"Mapped texture: {mapping_dropdown.value}")
+
+    mo.hstack([div(style="padding-left: 19px;"), fig_src, div(style="padding-left: 28px;"), fig_dst], justify="start")
     return
 
 
