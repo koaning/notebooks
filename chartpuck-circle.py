@@ -64,21 +64,33 @@ def _(ChartPuck, mo, np, plt):
     return (puck,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Mapping between images
+
+    This notebook is inspired by this 3b1b video and it serves as an interactive way to intuit what is happening.
+
+    Let's start by comparing these two lines. You can move the dot on the left chart. Can you see the relationship?
+    """)
+    return
+
+
 @app.cell
 def _(mo, np, plt, puck):
     from mohtml import div 
 
     px, py = puck.x[0], puck.y[0]
-    r = np.sqrt(px**2 + py**2)
-    theta = np.arctan2(py, px)
-    log_r = np.log(max(r, 1e-9))
+    puck_r = np.sqrt(px**2 + py**2)
+    puck_theta = np.arctan2(py, px)
+    puck_log_r = np.log(max(puck_r, 1e-9))
 
     # The circle (all points at radius r) maps to a vertical line at x = ln(r)
     theta_range = np.linspace(-np.pi, np.pi, 200)
 
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.plot(np.full_like(theta_range, log_r), theta_range, color="#e63946", linewidth=2)
-    ax.plot(log_r, theta, "o", color="#e63946", markersize=8)
+    ax.plot(np.full_like(theta_range, puck_log_r), theta_range, color="#e63946", linewidth=2)
+    ax.plot(puck_log_r, puck_theta, "o", color="#e63946", markersize=8)
     ax.axhline(0, color="black", linewidth=0.5)
     ax.axvline(0, color="black", linewidth=0.5)
     ax.grid(True, alpha=0.3)
@@ -95,41 +107,75 @@ def _(mo, np, plt, puck):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    When you keep the circle in the same size and move the puck over it you'll see that is like changing an angle. And this is reflecting in the image to the right because the dot moves on the `y`-axis. When you change the radius though, you can see movement on the `x`-axis.
+
     But what if we apply a mapping of an entire image using this technique?
     """)
     return
 
 
 @app.cell
-def _(div, log_img, map_log_to_complex, mo, np, plt, puck):
+def _(ChartPuck, log_img, map_log_to_complex, mo, np, plt):
     arr = np.array(log_img)
     mapped = map_log_to_complex(arr)
 
-    puck_x, puck_y = puck.x[0], puck.y[0]
-    puck_r = np.sqrt(puck_x**2 + puck_y**2)
+    def draw_mapped_with_circle(ax, widget):
+        ax.imshow(mapped, extent=(-5, 5, -5, 5), origin="lower")
+        px, py = widget.x[0], widget.y[0]
+        r = np.sqrt(px**2 + py**2)
+        circle = plt.Circle((0, 0), r, fill=False, color="#e63946", linewidth=2)
+        ax.add_patch(circle)
+        ax.set_xlim(-5, 5)
+        ax.set_ylim(-5, 5)
+        ax.set_aspect("equal")
 
-    fig_mapped, ax_mapped = plt.subplots(figsize=(6, 6))
-    ax_mapped.imshow(mapped, extent=(-5, 5, -5, 5), origin="lower")
-    circle = plt.Circle((0, 0), puck_r, fill=False, color="#e63946", linewidth=2)
-    ax_mapped.add_patch(circle)
-    ax_mapped.plot(puck_x, puck_y, "o", color="#e63946", markersize=10, zorder=5)
-    ax_mapped.set_xlim(-5, 5)
-    ax_mapped.set_ylim(-5, 5)
-    ax_mapped.set_aspect("equal")
+    log_puck = mo.ui.anywidget(
+        ChartPuck.from_callback(
+            draw_fn=draw_mapped_with_circle,
+            x_bounds=(-5, 5),
+            y_bounds=(-5, 5),
+            figsize=(6, 6),
+            x=2.0,
+            y=0.0,
+            puck_radius=6,
+            throttle=100,
+        )
+    )
+    return arr, log_puck
+
+
+@app.cell
+def _(arr, div, log_puck, mo, np, plt):
+    lp_x, lp_y = log_puck.x[0], log_puck.y[0]
+    lp_r = np.sqrt(lp_x**2 + lp_y**2)
+    log_r = np.log(max(lp_r, 1e-9))
+    lp_theta = np.arctan2(lp_y, lp_x)
+    angles = np.linspace(-np.pi, np.pi, 200)
 
     fig_log, ax_log = plt.subplots(figsize=(6, 6))
     ax_log.imshow(arr, extent=(-2, 2, -np.pi, np.pi), origin="lower", aspect="auto")
-    log_puck_r = np.log(max(puck_r, 1e-9))
-    angles = np.linspace(-np.pi, np.pi, 200)
-    ax_log.plot(np.full_like(angles, log_puck_r), angles, color="#e63946", linewidth=2)
-    puck_theta = np.arctan2(puck_y, puck_x)
-    ax_log.plot(log_puck_r, puck_theta, "o", color="#e63946", markersize=10, zorder=5)
+    ax_log.plot(np.full_like(angles, log_r), angles, color="#e63946", linewidth=2)
+    ax_log.plot(log_r, lp_theta, "o", color="#e63946", markersize=10, zorder=5)
     ax_log.set_xlim(-2, 2)
     ax_log.set_ylim(-np.pi, np.pi)
     ax_log.set_xlabel("ln(r)")
     ax_log.set_ylabel("θ")
 
-    mo.hstack([div(style="padding-left: 19px;"), fig_mapped, div(style="padding-left: 28px;"), mo.vstack([fig_log])], justify="start")
+    mo.hstack([log_puck, mo.vstack([div(style="margin-top: 37px;"), fig_log])], justify="start")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Things can feel quite "trippy" but the main thing to remember here is that we're "just" doing a mapping. The chart on the right is transformed just like the red line.
+
+    ## Different projections.
+
+    By now you may recognize that the mapping has a relationship to complex numbers. These live in "polar coordinate"-land and can sometimes cause behavior that feels strange at first but make some sense when you start thinging about it.
+
+    In the next section, you'll explore a point with a radius and you're able to select different functions in the complex plane to get an impression of how the underlying data is transformed.
+    """)
     return
 
 
@@ -268,6 +314,7 @@ def _(apply_mapping, np):
 def _(
     bounds,
     colors,
+    div,
     draw_mapped_circles,
     mapping_dropdown,
     mapping_puck,
@@ -289,7 +336,7 @@ def _(
     ax_out.set_aspect("equal")
     ax_out.set_title(f"Output: f(z) = {mapping_dropdown.value}")
 
-    mo.hstack([mapping_puck, fig_out], justify="start")
+    mo.hstack([mapping_puck, mo.vstack([div(style="padding-top: 22px;"), fig_out])], justify="start")
     return
 
 
@@ -394,45 +441,72 @@ def _(np):
             ax.plot(cx + rad * np.cos(t), cy + rad * np.sin(t), color=col, linewidth=2)
         ax.plot(cx, cy, "o", color="#e63946", markersize=10, zorder=5)
 
-    return (draw_input_circles_on,)
+    return
+
+
+@app.cell
+def _(ChartPuck, colors, make_texture, mo, np, radii, texture_dropdown):
+    texture = make_texture(texture_dropdown.value)
+
+    def draw_texture_with_circles(ax, widget):
+        ax.imshow(texture, extent=(-5, 5, -5, 5), origin="lower")
+        cx, cy = widget.x[0], widget.y[0]
+        t = np.linspace(0, 2 * np.pi, 200)
+        for rad, col in zip(radii, colors):
+            ax.plot(cx + rad * np.cos(t), cy + rad * np.sin(t), color=col, linewidth=2)
+        ax.set_xlim(-5, 5)
+        ax.set_ylim(-5, 5)
+        ax.set_aspect("equal")
+        ax.set_title("Input texture")
+
+    texture_puck = mo.ui.anywidget(
+        ChartPuck.from_callback(
+            draw_fn=draw_texture_with_circles,
+            x_bounds=(-5, 5),
+            y_bounds=(-5, 5),
+            figsize=(6, 6),
+            x=2.0,
+            y=1.0,
+            puck_radius=6,
+            throttle=100,
+        )
+    )
+    return texture, texture_puck
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Let's now repeat the exercise but with an image at the bottom of it. The results can be quite unexpected!
+    """)
+    return
 
 
 @app.cell
 def _(
     colors,
     div,
-    draw_input_circles_on,
     draw_mapped_circles,
-    make_texture,
     map_image_through,
     mapping_dropdown,
-    mapping_puck,
     mo,
     plt,
     radii,
-    texture_dropdown,
+    texture,
+    texture_puck,
 ):
-    texture = make_texture(texture_dropdown.value)
     mapped_texture = map_image_through(texture, mapping_dropdown.value)
-    mcx, mcy = mapping_puck.x[0], mapping_puck.y[0]
-
-    fig_src, ax_src = plt.subplots(figsize=(6, 6))
-    ax_src.imshow(texture, extent=(-5, 5, -5, 5), origin="lower")
-    draw_input_circles_on(ax_src, mcx, mcy, radii, colors)
-    ax_src.set_xlim(-5, 5)
-    ax_src.set_ylim(-5, 5)
-    ax_src.set_aspect("equal")
-    ax_src.set_title("Input texture")
+    tcx, tcy = texture_puck.x[0], texture_puck.y[0]
 
     fig_dst, ax_dst = plt.subplots(figsize=(6, 6))
     ax_dst.imshow(mapped_texture, extent=(-5, 5, -5, 5), origin="lower")
-    draw_mapped_circles(ax_dst, mcx, mcy, radii, colors, mapping_dropdown.value)
+    draw_mapped_circles(ax_dst, tcx, tcy, radii, colors, mapping_dropdown.value)
     ax_dst.set_xlim(-5, 5)
     ax_dst.set_ylim(-5, 5)
     ax_dst.set_aspect("equal")
     ax_dst.set_title(f"Mapped texture: {mapping_dropdown.value}")
 
-    mo.hstack([div(style="padding-left: 19px;"), fig_src, div(style="padding-left: 28px;"), fig_dst], justify="start")
+    mo.hstack([texture_puck, mo.vstack([div(style="padding-top: 21px;"), fig_dst])], justify="start")
     return
 
 
