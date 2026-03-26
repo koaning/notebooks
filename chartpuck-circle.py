@@ -22,6 +22,7 @@ def _():
     import marimo as mo
     import numpy as np
     import matplotlib
+
     matplotlib.rcParams["figure.dpi"] = 72
     import matplotlib.pyplot as plt
     from wigglystuff import ChartPuck
@@ -33,6 +34,7 @@ def _():
 def _(ChartPuck, mo, np, plt):
     x_bounds = (-5, 5)
     y_bounds = (-5, 5)
+
 
     def draw_circle(ax, widget):
         px, py = widget.x[0], widget.y[0]
@@ -48,6 +50,7 @@ def _(ChartPuck, mo, np, plt):
         ax.set_ylim(y_bounds)
         ax.set_aspect("equal")
         ax.set_title("")
+
 
     puck = mo.ui.anywidget(
         ChartPuck.from_callback(
@@ -78,7 +81,7 @@ def _(mo):
 
 @app.cell
 def _(mo, np, plt, puck):
-    from mohtml import div 
+    from mohtml import div
 
     px, py = puck.x[0], puck.y[0]
     puck_r = np.sqrt(px**2 + py**2)
@@ -119,6 +122,7 @@ def _(ChartPuck, log_img, map_log_to_complex, mo, np, plt):
     arr = np.array(log_img)
     mapped = map_log_to_complex(arr)
 
+
     def draw_mapped_with_circle(ax, widget):
         ax.imshow(mapped, extent=(-5, 5, -5, 5), origin="lower")
         px, py = widget.x[0], widget.y[0]
@@ -128,6 +132,7 @@ def _(ChartPuck, log_img, map_log_to_complex, mo, np, plt):
         ax.set_xlim(-5, 5)
         ax.set_ylim(-5, 5)
         ax.set_aspect("equal")
+
 
     log_puck = mo.ui.anywidget(
         ChartPuck.from_callback(
@@ -198,6 +203,7 @@ def _(Image, ImageDraw):
                     draw.rectangle([col, row, col + tile_size, row + tile_size], fill="#b0b0b0")
         return img
 
+
     log_img = make_checkerboard()
     return (log_img,)
 
@@ -245,7 +251,7 @@ def _(mo):
 def _(np):
     def apply_mapping(z, name):
         if name == "z_squared":
-            return z ** 2
+            return z**2
         elif name == "inversion":
             return 1.0 / np.where(np.abs(z) < 1e-9, 1e-9, z)
         elif name == "joukowski":
@@ -267,6 +273,7 @@ def _(ChartPuck, mo, np):
     colors = ["#e63946", "#457b9d", "#2a9d8f"]
     n_pts = 200
 
+
     def draw_input_circles(ax, widget):
         cx, cy = widget.x[0], widget.y[0]
         t = np.linspace(0, 2 * np.pi, n_pts)
@@ -279,6 +286,7 @@ def _(ChartPuck, mo, np):
         ax.set_ylim(bounds)
         ax.set_aspect("equal")
         ax.set_title("Input: z")
+
 
     mapping_puck = mo.ui.anywidget(
         ChartPuck.from_callback(
@@ -305,7 +313,9 @@ def _(apply_mapping, np):
             z_out = apply_mapping(z_in, mapping_name)
             ax.plot(z_out.real, z_out.imag, color=col, linewidth=2)
         center_mapped = apply_mapping(cx + 1j * cy, mapping_name)
-        ax.plot(center_mapped.real, center_mapped.imag, "o", color="#e63946", markersize=10, zorder=5)
+        ax.plot(
+            center_mapped.real, center_mapped.imag, "o", color="#e63946", markersize=10, zorder=5
+        )
 
     return (draw_mapped_circles,)
 
@@ -325,8 +335,11 @@ def _(
     fig_out, ax_out = plt.subplots(figsize=(6, 6))
     draw_mapped_circles(
         ax_out,
-        mapping_puck.x[0], mapping_puck.y[0],
-        radii, colors, mapping_dropdown.value,
+        mapping_puck.x[0],
+        mapping_puck.y[0],
+        radii,
+        colors,
+        mapping_dropdown.value,
     )
     ax_out.axhline(0, color="black", linewidth=0.5)
     ax_out.axvline(0, color="black", linewidth=0.5)
@@ -336,13 +349,21 @@ def _(
     ax_out.set_aspect("equal")
     ax_out.set_title(f"Output: f(z) = {mapping_dropdown.value}")
 
-    mo.hstack([mapping_puck, mo.vstack([div(style="padding-top: 22px;"), fig_out])], justify="start")
+    mo.hstack(
+        [mapping_puck, mo.vstack([div(style="padding-top: 22px;"), fig_out])], justify="start"
+    )
     return
 
 
 @app.cell
-def _(mapping_dropdown, mo, texture_dropdown):
-    mo.hstack([mapping_dropdown, texture_dropdown], justify="start")
+def _(mo):
+    wrap_checkbox = mo.ui.checkbox(value=False, label="Wrap texture (tiling effect)")
+    return (wrap_checkbox,)
+
+
+@app.cell
+def _(mapping_dropdown, mo, texture_dropdown, wrap_checkbox):
+    mo.hstack([mapping_dropdown, texture_dropdown, wrap_checkbox], justify="start")
     return
 
 
@@ -385,7 +406,9 @@ def _(Image, ImageDraw, np):
             draw = ImageDraw.Draw(img)
             cx, cy = width // 2, height // 2
             for ring in range(20, max(width, height), 40):
-                draw.ellipse([cx - ring, cy - ring, cx + ring, cy + ring], outline="#457b9d", width=1)
+                draw.ellipse(
+                    [cx - ring, cy - ring, cx + ring, cy + ring], outline="#457b9d", width=1
+                )
             for angle_deg in range(0, 360, 30):
                 angle = np.radians(angle_deg)
                 ex = int(cx + max(width, height) * np.cos(angle))
@@ -397,7 +420,7 @@ def _(Image, ImageDraw, np):
 
 
 @app.cell
-def _(map_coordinates, np):
+def _(map_coordinates, np, wrap_checkbox):
     def map_image_through(img_arr, mapping_name, output_size=400, plane_bounds=(-5, 5)):
         h, w = img_arr.shape[:2]
         lin = np.linspace(plane_bounds[0], plane_bounds[1], output_size)
@@ -423,9 +446,16 @@ def _(map_coordinates, np):
         px_x = (src.real - plane_bounds[0]) / (plane_bounds[1] - plane_bounds[0]) * w
         px_y = (src.imag - plane_bounds[0]) / (plane_bounds[1] - plane_bounds[0]) * h
 
-        # Mask for pixels that map to valid input coordinates
-        valid = (px_x >= 0) & (px_x < w) & (px_y >= 0) & (px_y < h) & np.isfinite(px_x) & np.isfinite(px_y)
+        if wrap_checkbox.value:
+            # Wrap mode: image tiles seamlessly outside bounds
+            channels = []
+            for i in range(3):
+                ch = map_coordinates(img_arr[..., i], [px_y, px_x], order=1, mode="wrap")
+                channels.append(ch)
+            return np.stack(channels, axis=-1)
 
+        # Transparent mode: out-of-bounds pixels become transparent
+        valid = (px_x >= 0) & (px_x < w) & (px_y >= 0) & (px_y < h) & np.isfinite(px_x) & np.isfinite(px_y)
         channels = []
         for i in range(3):
             ch = map_coordinates(img_arr[..., i], [px_y, px_x], order=1, mode="constant", cval=0)
@@ -452,6 +482,7 @@ def _(np):
 def _(ChartPuck, colors, make_texture, mo, np, radii, texture_dropdown):
     texture = make_texture(texture_dropdown.value)
 
+
     def draw_texture_with_circles(ax, widget):
         ax.imshow(texture, extent=(-5, 5, -5, 5), origin="lower")
         cx, cy = widget.x[0], widget.y[0]
@@ -462,6 +493,7 @@ def _(ChartPuck, colors, make_texture, mo, np, radii, texture_dropdown):
         ax.set_ylim(-5, 5)
         ax.set_aspect("equal")
         ax.set_title("Input texture")
+
 
     texture_puck = mo.ui.anywidget(
         ChartPuck.from_callback(
@@ -510,7 +542,59 @@ def _(
     ax_dst.set_aspect("equal")
     ax_dst.set_title(f"Mapped texture: {mapping_dropdown.value}")
 
-    mo.hstack([texture_puck, mo.vstack([div(style="padding-top: 21px;"), fig_dst])], justify="start")
+    mo.hstack(
+        [texture_puck, mo.vstack([div(style="padding-top: 21px;"), fig_dst])], justify="start"
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    With `1/z` on a checkerboard, you can zoom in near the origin and see the pattern repeat infinitely — a hallmark of conformal inversion.
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    zoom_slider = mo.ui.slider(0.1, 5.0, step=0.05, value=5.0, label="Zoom (half-width)")
+    return (zoom_slider,)
+
+
+@app.cell
+def _(make_texture, map_image_through, mo, plt, zoom_slider):
+    zoom_half = zoom_slider.value
+    zoom_bounds = (-zoom_half, zoom_half)
+
+    checker = make_texture("checkerboard")
+    zoomed = map_image_through(checker, "inversion", output_size=500, plane_bounds=zoom_bounds)
+
+    fig_zoom, ax_zoom = plt.subplots(figsize=(8, 8))
+    ax_zoom.imshow(zoomed, extent=(*zoom_bounds, *zoom_bounds), origin="lower")
+    ax_zoom.axhline(0, color="white", linewidth=0.5, alpha=0.5)
+    ax_zoom.axvline(0, color="white", linewidth=0.5, alpha=0.5)
+    ax_zoom.set_xlim(zoom_bounds)
+    ax_zoom.set_ylim(zoom_bounds)
+    ax_zoom.set_aspect("equal")
+    ax_zoom.set_title(f"1/z on checkerboard — zoom: {zoom_half:.2f}")
+
+    mo.vstack([zoom_slider, fig_zoom])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Appendix: What does "Wrap texture" do?
+
+    When we map an image through a complex function, many output pixels trace back to source coordinates that fall outside the original image bounds. The **"Wrap texture"** checkbox controls what happens at those out-of-bounds pixels.
+
+    - **Unchecked (default):** Out-of-bounds pixels become transparent. Only the region that maps back into the original image is visible, giving you a clear view of where the mapping is well-defined.
+    - **Checked:** Out-of-bounds coordinates wrap around modulo the image size (e.g. coordinate 450 on a 400px image becomes 50, and -3 becomes 397). This effectively tiles the image infinitely in all directions, so the complex mapping produces a seamless, repeating pattern — which is where the "trippy" infinite-tiling effect comes from.
+
+    Under the hood this is controlled by the `mode` parameter of `scipy.ndimage.map_coordinates`: `mode="wrap"` for tiling, `mode="constant"` with an alpha mask for transparency.
+    """)
     return
 
 
