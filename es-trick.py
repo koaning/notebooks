@@ -60,7 +60,7 @@ def _(SHAPE, data, mo, np, pl, slider, y_true):
             else:
                 A = np.random.randn(n_pop, m, rank) * 0.02
                 B = np.random.randn(n_pop, rank, n)
-                eps = np.matmul(A, B)
+                eps = np.matmul(A, B)/np.sqrt(rank)
 
             w_perturbed = w_curr[None, :, :] + eps
 
