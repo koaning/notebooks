@@ -112,13 +112,14 @@ def _(mo, os, urllib):
         urllib.request.urlretrieve(wad_url, wad_path)
 
     mo.md(f"**WAD file ready:** `{wad_path}` ({os.path.getsize(wad_path) / 1024 / 1024:.1f} MB)")
-    return
+    return (wad_path,)
 
 
 @app.cell
 def _():
     import anywidget
     import traitlets
+
 
     class DoomCanvas(anywidget.AnyWidget):
         """Anywidget that renders JPEG frames on a canvas and captures keyboard input."""
@@ -197,7 +198,7 @@ def _():
                 if (!b64) return;
                 const img = new Image();
                 img.onload = () => {
-                    ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 };
                 img.src = "data:image/jpeg;base64," + b64;
             });
@@ -256,6 +257,7 @@ def _(DoomCanvas, cdg, io, mo):
 
     canvas_widget = DoomCanvas()
 
+
     class DoomRunner:
         """Bridges cydoomgeneric callbacks to the anywidget canvas."""
 
@@ -268,6 +270,7 @@ def _(DoomCanvas, cdg, io, mo):
             thread = mo.current_thread()
             if thread is not None and thread.should_exit:
                 import sys
+
                 sys.exit(0)
 
             self.frame_count += 1
@@ -280,6 +283,7 @@ def _(DoomCanvas, cdg, io, mo):
             # Encode as JPEG, then base64 for safe traitlet transport
             import base64
             from PIL import Image
+
             img = Image.fromarray(rgb)
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=70)
@@ -322,12 +326,13 @@ def _(DoomCanvas, cdg, io, mo):
         def set_window_title(self, t):
             pass
 
+
     doom = DoomRunner(canvas_widget)
     return RESX, RESY, canvas_widget, doom
 
 
 @app.cell
-def _(RESX, RESY, cdg, doom, mo):
+def _(RESX, RESY, cdg, doom, mo, wad_path):
     def start_doom():
         cdg.init(
             RESX,
@@ -337,7 +342,8 @@ def _(RESX, RESY, cdg, doom, mo):
             set_window_title=doom.set_window_title,
         )
         doom.running = True
-        cdg.main()
+        cdg.main(["doom", "-iwad", wad_path])
+
 
     doom_thread = mo.Thread(target=start_doom, daemon=True)
     doom_thread.start()
