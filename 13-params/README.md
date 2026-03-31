@@ -1,6 +1,6 @@
 ---
 title: Readme
-marimo-version: 0.20.4
+marimo-version: 0.21.1
 ---
 
 # 13 Parameters Is All You Need

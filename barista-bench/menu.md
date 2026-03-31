@@ -1,6 +1,6 @@
 ---
 title: Menu
-marimo-version: 0.20.4
+marimo-version: 0.21.1
 ---
 
 # BARISTA BENCH: OFFICIAL MENU & RULES (V2)

@@ -14,7 +14,7 @@
 
 import marimo
 
-__generated_with = "0.21.0"
+__generated_with = "0.21.1"
 app = marimo.App(width="medium")
 
 
@@ -31,7 +31,17 @@ def _():
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-    return AutoModelForCausalLM, AutoTokenizer, BaseModel, Field, mo, np, random, torch, wandb
+    return (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        BaseModel,
+        Field,
+        mo,
+        np,
+        random,
+        torch,
+        wandb,
+    )
 
 
 @app.cell(hide_code=True)
@@ -286,7 +296,7 @@ def _(device, model_params, tokenizer, torch):
                 correct += 1
         return correct / len(dataset)
 
-    return evaluate_acc, get_prediction
+    return (evaluate_acc,)
 
 
 @app.cell
@@ -339,8 +349,8 @@ def _(base_model, eval_data, evaluate_acc):
 
 @app.cell
 def _(
-    base_model,
     base_acc,
+    base_model,
     eval_data,
     evaluate_seed,
     model_params,
@@ -397,8 +407,7 @@ def _(
             f"acc={seed_acc:.1%} uplift={uplift_abs:+.1%}",
             flush=True,
         )
-
-    return common_config, results
+    return (results,)
 
 
 @app.cell
@@ -428,7 +437,7 @@ def _(base_acc, mo, results):
     |------|----------|-----------------|-----------------|
     {table_rows}
     """)
-    return (results_sorted,)
+    return
 
 
 if __name__ == "__main__":
