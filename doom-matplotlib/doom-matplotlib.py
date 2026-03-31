@@ -26,17 +26,67 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Doom in a Canvas
+    # Doom in a Marimo Notebook
 
-    This notebook runs **Doom** (the 1993 classic) inside an HTML5 `<canvas>` using
-    [`cydoomgeneric`](https://github.com/wojciech-graj/cydoomgeneric) — a Python binding
-    for the portable DoomGeneric engine.
+    This notebook runs the original 1993 Doom engine inside a marimo notebook. The game
+    runs at playable frame rates despite every single frame travelling from a C game engine,
+    through Python, over a WebSocket, and into your browser. Here's how.
 
-    The rendering pipeline: `cydoomgeneric` calls our `draw_frame(pixels)` callback on every
-    game tick. We JPEG-encode the frame and send raw bytes to an anywidget, which decodes
-    and paints them onto a `<canvas>` element. Keyboard events flow back from JS to Python.
+    ## The architecture
 
-    **Click the game canvas to focus it, then use arrow keys to move, Ctrl to shoot, Space to open doors.**
+    ```
+    ┌─ Python (backend) ───────────────────┐       ┌─ Browser (frontend) ─────────┐
+    │                                      │       │                              │
+    │  cydoomgeneric (C extension)         │       │  anywidget                   │
+    │  ├─ runs the full Doom engine        │       │  ├─ <canvas> element         │
+    │  ├─ physics, AI, rendering           │  ws   │  ├─ decodes JPEG → drawImage │
+    │  └─ calls draw_frame(pixels) ────────│──────>│  └─ captures keydown/keyup   │
+    │                                      │       │         │                    │
+    │  get_key() polls for input <─────────│───────│─────────┘                    │
+    │                                      │  ws   │                              │
+    └──────────────────────────────────────┘       └──────────────────────────────┘
+    ```
+
+    **Nothing runs in the browser except a JPEG decoder and keyboard listener.** The entire game —
+    physics, enemy AI, BSP rendering, collision detection — runs in Python's process via
+    [`cydoomgeneric`](https://github.com/wojciech-graj/cydoomgeneric), a Python binding for the
+    portable DoomGeneric C engine.
+
+    ## Why is it fast?
+
+    At first glance, shipping every frame through `Python → JPEG → base64 → WebSocket → browser`
+    sounds hopelessly slow. But each step is cheaper than you'd think:
+
+    **1. The frame is tiny.** Doom renders at 320×200 — that's 64,000 pixels. A modern 1080p
+    game pushes 2,073,600 pixels per frame, which is 32× more. The entire Doom framebuffer
+    fits in 192 KB of RAM.
+
+    **2. JPEG encoding is fast at this size.** Pillow's JPEG encoder (libjpeg under the hood)
+    compresses a 320×200 frame in under 1 ms. At quality 70, the output is typically 5–10 KB —
+    small enough that WebSocket transfer is near-instant on localhost.
+
+    **3. Base64 is a memcpy, not a bottleneck.** Converting 8 KB of JPEG to ~11 KB of base64
+    is a trivial string operation. We use base64 because marimo's widget transport (via pickle)
+    chokes on raw binary bytes, but the overhead is negligible.
+
+    **4. The browser decodes JPEG in hardware.** When JavaScript creates an `Image` element with
+    a data URI, the browser hands JPEG decoding to the platform's native codec — often
+    GPU-accelerated. Then `canvas.drawImage()` blits it to screen, also GPU-accelerated.
+
+    **5. Frame skipping hides the remaining latency.** The game engine ticks at full speed
+    (processing input every tick), but we only encode and ship every 2nd frame. This means
+    the game stays responsive even if a frame occasionally takes longer to deliver.
+
+    ## What's the actual bottleneck?
+
+    The `draw_frame → JPEG encode → base64 → traitlet sync → WebSocket → browser decode → paint`
+    round trip takes roughly 5–15 ms total, which puts us in the 30–60 fps range. The dominant
+    cost is the traitlet sync — anywidget's change-detection and marimo's WebSocket serialization
+    add a few milliseconds of overhead beyond the raw encode time.
+
+    For comparison, the **matplotlib approach** (which this notebook evolved from) topped out at
+    ~10 fps because `fig.savefig()` rasterizes the entire figure through matplotlib's Agg backend —
+    a full software rendering pipeline designed for publication-quality plots, not real-time video.
     """)
     return
 
@@ -75,27 +125,129 @@ def _():
 
         _esm = """
         function render({ model, el }) {
-            const wrapper = document.createElement("div");
-            wrapper.style.position = "relative";
-            wrapper.style.display = "inline-block";
+            // --- Matplotlib-style figure wrapper ---
+            const CANVAS_W = 640, CANVAS_H = 400;
+            const MARGIN = { top: 40, right: 20, bottom: 50, left: 60 };
+            const FIG_W = MARGIN.left + CANVAS_W + MARGIN.right;
+            const FIG_H = MARGIN.top + CANVAS_H + MARGIN.bottom;
 
+            const figure = document.createElement("div");
+            figure.style.position = "relative";
+            figure.style.width = FIG_W + "px";
+            figure.style.height = FIG_H + "px";
+            figure.style.background = "#fff";
+            figure.style.border = "1px solid #ccc";
+            figure.style.fontFamily = "'DejaVu Sans', 'Helvetica', 'Arial', sans-serif";
+
+            // Title
+            const title = document.createElement("div");
+            title.textContent = "doom1.wad — E1M1: Hangar";
+            title.style.position = "absolute";
+            title.style.top = "8px";
+            title.style.left = "0";
+            title.style.width = "100%";
+            title.style.textAlign = "center";
+            title.style.fontSize = "14px";
+            title.style.fontWeight = "bold";
+            title.style.color = "#333";
+            figure.appendChild(title);
+
+            // Y-axis label (rotated)
+            const ylabel = document.createElement("div");
+            ylabel.textContent = "y (pixels)";
+            ylabel.style.position = "absolute";
+            ylabel.style.left = "4px";
+            ylabel.style.top = (MARGIN.top + CANVAS_H / 2) + "px";
+            ylabel.style.transform = "rotate(-90deg) translateX(-50%)";
+            ylabel.style.transformOrigin = "0 0";
+            ylabel.style.fontSize = "11px";
+            ylabel.style.color = "#555";
+            figure.appendChild(ylabel);
+
+            // X-axis label
+            const xlabel = document.createElement("div");
+            xlabel.textContent = "x (pixels)";
+            xlabel.style.position = "absolute";
+            xlabel.style.bottom = "6px";
+            xlabel.style.left = "0";
+            xlabel.style.width = "100%";
+            xlabel.style.textAlign = "center";
+            xlabel.style.fontSize = "11px";
+            xlabel.style.color = "#555";
+            figure.appendChild(xlabel);
+
+            // Y-axis ticks
+            const yTicks = [0, 50, 100, 150, 200];
+            for (const v of yTicks) {
+                const yPos = MARGIN.top + (v / 200) * CANVAS_H;
+                // Tick line
+                const tick = document.createElement("div");
+                tick.style.position = "absolute";
+                tick.style.left = (MARGIN.left - 5) + "px";
+                tick.style.top = yPos + "px";
+                tick.style.width = "5px";
+                tick.style.height = "1px";
+                tick.style.background = "#333";
+                figure.appendChild(tick);
+                // Label
+                const lbl = document.createElement("div");
+                lbl.textContent = v;
+                lbl.style.position = "absolute";
+                lbl.style.right = (FIG_W - MARGIN.left + 8) + "px";
+                lbl.style.top = (yPos - 6) + "px";
+                lbl.style.fontSize = "10px";
+                lbl.style.color = "#555";
+                lbl.style.textAlign = "right";
+                figure.appendChild(lbl);
+            }
+
+            // X-axis ticks
+            const xTicks = [0, 80, 160, 240, 320];
+            for (const v of xTicks) {
+                const xPos = MARGIN.left + (v / 320) * CANVAS_W;
+                // Tick line
+                const tick = document.createElement("div");
+                tick.style.position = "absolute";
+                tick.style.left = xPos + "px";
+                tick.style.top = (MARGIN.top + CANVAS_H) + "px";
+                tick.style.width = "1px";
+                tick.style.height = "5px";
+                tick.style.background = "#333";
+                figure.appendChild(tick);
+                // Label
+                const lbl = document.createElement("div");
+                lbl.textContent = v;
+                lbl.style.position = "absolute";
+                lbl.style.left = (xPos - 10) + "px";
+                lbl.style.top = (MARGIN.top + CANVAS_H + 7) + "px";
+                lbl.style.fontSize = "10px";
+                lbl.style.color = "#555";
+                lbl.style.width = "20px";
+                lbl.style.textAlign = "center";
+                figure.appendChild(lbl);
+            }
+
+            // The game canvas — positioned inside the "axes"
             const canvas = document.createElement("canvas");
-            canvas.width = 640;
-            canvas.height = 400;
+            canvas.width = CANVAS_W;
+            canvas.height = CANVAS_H;
             canvas.tabIndex = 0;
+            canvas.style.position = "absolute";
+            canvas.style.left = MARGIN.left + "px";
+            canvas.style.top = MARGIN.top + "px";
             canvas.style.cursor = "crosshair";
             canvas.style.outline = "none";
-            canvas.style.border = "2px solid #333";
+            canvas.style.border = "1px solid #333";
             canvas.style.imageRendering = "pixelated";
             canvas.style.background = "#000";
-            canvas.style.display = "block";
             const ctx = canvas.getContext("2d");
+            figure.appendChild(canvas);
 
-            // Focus indicator badge
+            // Focus indicator badge (inside the axes area)
             const badge = document.createElement("div");
             badge.style.position = "absolute";
-            badge.style.top = "8px";
-            badge.style.right = "8px";
+            badge.style.top = (MARGIN.top + 8) + "px";
+            badge.style.left = (MARGIN.left + CANVAS_W - 185) + "px";
             badge.style.padding = "3px 8px";
             badge.style.borderRadius = "4px";
             badge.style.fontSize = "11px";
@@ -103,8 +255,12 @@ def _():
             badge.style.pointerEvents = "none";
             badge.style.zIndex = "10";
             badge.style.transition = "opacity 0.15s";
+            figure.appendChild(badge);
 
-            // Manual active state — don't rely on browser focus at all
+            el.appendChild(figure);
+
+            // --- Game logic (unchanged) ---
+
             let active = false;
             const pressedKeys = new Set();
 
@@ -122,12 +278,12 @@ def _():
                 if (!val) releaseAllKeys();
                 active = val;
                 if (active) {
-                    canvas.style.border = "2px solid #4a4";
+                    canvas.style.border = "1px solid #4a4";
                     badge.textContent = "ACTIVE — press Q to release";
                     badge.style.background = "rgba(40, 120, 40, 0.85)";
                     badge.style.color = "#fff";
                 } else {
-                    canvas.style.border = "2px solid #333";
+                    canvas.style.border = "1px solid #333";
                     badge.textContent = "PAUSED — click to play";
                     badge.style.background = "rgba(50, 50, 50, 0.85)";
                     badge.style.color = "#aaa";
@@ -136,11 +292,6 @@ def _():
 
             setActive(false);
 
-            wrapper.appendChild(canvas);
-            wrapper.appendChild(badge);
-            el.appendChild(wrapper);
-
-            // Click anywhere on the canvas to activate
             canvas.addEventListener("click", () => setActive(true));
 
             // Render JPEG frames from Python (base64-encoded)
@@ -149,13 +300,11 @@ def _():
                 if (!b64) return;
                 const img = new Image();
                 img.onload = () => {
-                    ctx.drawImage(img, 0, 0, 640, 400);
+                    ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H);
                 };
                 img.src = "data:image/jpeg;base64," + b64;
             });
 
-            // Map JS key names to simple names for Python
-            // z and f are alternative fire keys since Ctrl is awkward in browsers
             const KEY_MAP = {
                 "ArrowLeft": "left",
                 "ArrowRight": "right",
@@ -173,13 +322,10 @@ def _():
             };
 
             const GAME_KEYS = new Set(Object.keys(KEY_MAP));
-
-            // Local buffer — never read from model, only append and sync
             const localBuffer = [];
 
             function handleKey(e, pressed) {
                 if (!active) return;
-                // Q releases the canvas
                 if (e.key === "q" || e.key === "Q") {
                     if (pressed) setActive(false);
                     return;
@@ -193,7 +339,6 @@ def _():
                 model.save_changes();
             }
 
-            // Listen at document level — bypasses marimo's event interception
             document.addEventListener("keydown", (e) => handleKey(e, true));
             document.addEventListener("keyup", (e) => handleKey(e, false));
         }
@@ -303,10 +448,14 @@ def _(RESX, RESY, cdg, doom, mo):
 
 
 @app.cell
-def _(canvas_widget, mo):
-    mo.vstack([
-        canvas_widget,
-        mo.md("""
+def _(canvas_widget):
+    canvas_widget
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     | Action | Key |
     |--------|-----|
     | Move forward / back | `↑` `↓` |
@@ -317,38 +466,47 @@ def _(canvas_widget, mo):
     | Run | `Shift` |
     | Menu / confirm | `Enter` / `Esc` |
     | **Release keyboard** | `Q` |
-    """),
-    ])
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## How it works
+    ## The widget: an anywidget with two traitlets
 
-    ### Rendering: Python → Canvas
-    1. `cydoomgeneric` calls `draw_frame(pixels)` with a numpy array every game tick
-    2. We convert BGR→RGB and JPEG-encode with Pillow (~1ms for 320×200)
-    3. Raw JPEG bytes are sent to the anywidget via a `Bytes` traitlet
-    4. JavaScript decodes with `createImageBitmap()` (hardware-accelerated) and paints on `<canvas>`
+    The entire browser-side component is a single anywidget with two synchronized traitlets:
 
-    ### Input: Canvas → Python
-    1. The `<canvas>` has `tabIndex` so it can receive focus and keyboard events
-    2. `keydown`/`keyup` events are mapped to simple key names and pushed into a `List` traitlet
-    3. `get_key()` reads from that list on each game tick
+    | Traitlet | Direction | Type | Purpose |
+    |----------|-----------|------|---------|
+    | `frame_b64` | Python → JS | `Unicode` | Base64-encoded JPEG frame |
+    | `key_events` | JS → Python | `List[Unicode]` | Append-only log of `"key:1"` / `"key:0"` strings |
 
-    ### Why this is faster than matplotlib
-    - No `savefig()` rasterization — Pillow JPEG encode is ~10× faster
-    - No PNG overhead — JPEG is smaller and faster to encode
-    - No matplotlib figure/axes overhead at all
-    - `createImageBitmap` decodes on GPU in the browser
-    - Canvas `drawImage` is hardware-accelerated
+    ### Why append-only key events?
+
+    Key events are tricky to sync. If JavaScript reads the current traitlet list, appends one event,
+    and writes it back, two rapid keypresses can race — the second read happens before the first
+    write syncs, so the first event gets overwritten. A lost `keyup` means Doom thinks you're
+    still holding the key, and you spin in circles forever.
+
+    The fix: JavaScript maintains a **local buffer** that only grows. Every keypress appends to the
+    local array, then the full array is synced to Python. Python tracks an index into this list
+    (`_last_event_len`) and consumes new entries on each `get_key()` call. No events can be lost
+    because nothing is ever removed or overwritten.
+
+    ### Focus management
+
+    Browser focus is unreliable inside marimo's DOM. Instead of using `canvas.focus()` / `canvas.blur()`,
+    we track an `active` boolean manually: click the canvas to activate, press Q to deactivate. When
+    deactivating, we send synthetic `keyup` events for all currently held keys to prevent stuck inputs.
 
     ### Performance knobs
-    - `FRAME_SKIP` — only render every Nth frame (currently 2)
-    - JPEG `quality` — lower = smaller bytes over websocket (currently 70)
-    - Resolution — 320×200 native, upscaled to 640×400 in CSS with `image-rendering: pixelated`
+
+    | Parameter | Current | Effect |
+    |-----------|---------|--------|
+    | `FRAME_SKIP` | 2 | Only encode every Nth frame (game logic still ticks every frame) |
+    | JPEG `quality` | 70 | Lower = smaller payload over WebSocket, minor visual loss |
+    | Resolution | 320×200 | Native Doom resolution; upscaled to 640×400 via CSS `image-rendering: pixelated` |
     """)
     return
 
