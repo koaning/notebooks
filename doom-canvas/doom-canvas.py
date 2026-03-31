@@ -125,129 +125,27 @@ def _():
 
         _esm = """
         function render({ model, el }) {
-            // --- Matplotlib-style figure wrapper ---
-            const CANVAS_W = 640, CANVAS_H = 400;
-            const MARGIN = { top: 40, right: 20, bottom: 50, left: 60 };
-            const FIG_W = MARGIN.left + CANVAS_W + MARGIN.right;
-            const FIG_H = MARGIN.top + CANVAS_H + MARGIN.bottom;
+            const wrapper = document.createElement("div");
+            wrapper.style.position = "relative";
+            wrapper.style.display = "inline-block";
 
-            const figure = document.createElement("div");
-            figure.style.position = "relative";
-            figure.style.width = FIG_W + "px";
-            figure.style.height = FIG_H + "px";
-            figure.style.background = "#fff";
-            figure.style.border = "1px solid #ccc";
-            figure.style.fontFamily = "'DejaVu Sans', 'Helvetica', 'Arial', sans-serif";
-
-            // Title
-            const title = document.createElement("div");
-            title.textContent = "doom1.wad — E1M1: Hangar";
-            title.style.position = "absolute";
-            title.style.top = "8px";
-            title.style.left = "0";
-            title.style.width = "100%";
-            title.style.textAlign = "center";
-            title.style.fontSize = "14px";
-            title.style.fontWeight = "bold";
-            title.style.color = "#333";
-            figure.appendChild(title);
-
-            // Y-axis label (rotated)
-            const ylabel = document.createElement("div");
-            ylabel.textContent = "y (pixels)";
-            ylabel.style.position = "absolute";
-            ylabel.style.left = "4px";
-            ylabel.style.top = (MARGIN.top + CANVAS_H / 2) + "px";
-            ylabel.style.transform = "rotate(-90deg) translateX(-50%)";
-            ylabel.style.transformOrigin = "0 0";
-            ylabel.style.fontSize = "11px";
-            ylabel.style.color = "#555";
-            figure.appendChild(ylabel);
-
-            // X-axis label
-            const xlabel = document.createElement("div");
-            xlabel.textContent = "x (pixels)";
-            xlabel.style.position = "absolute";
-            xlabel.style.bottom = "6px";
-            xlabel.style.left = "0";
-            xlabel.style.width = "100%";
-            xlabel.style.textAlign = "center";
-            xlabel.style.fontSize = "11px";
-            xlabel.style.color = "#555";
-            figure.appendChild(xlabel);
-
-            // Y-axis ticks
-            const yTicks = [0, 50, 100, 150, 200];
-            for (const v of yTicks) {
-                const yPos = MARGIN.top + (v / 200) * CANVAS_H;
-                // Tick line
-                const tick = document.createElement("div");
-                tick.style.position = "absolute";
-                tick.style.left = (MARGIN.left - 5) + "px";
-                tick.style.top = yPos + "px";
-                tick.style.width = "5px";
-                tick.style.height = "1px";
-                tick.style.background = "#333";
-                figure.appendChild(tick);
-                // Label
-                const lbl = document.createElement("div");
-                lbl.textContent = v;
-                lbl.style.position = "absolute";
-                lbl.style.right = (FIG_W - MARGIN.left + 8) + "px";
-                lbl.style.top = (yPos - 6) + "px";
-                lbl.style.fontSize = "10px";
-                lbl.style.color = "#555";
-                lbl.style.textAlign = "right";
-                figure.appendChild(lbl);
-            }
-
-            // X-axis ticks
-            const xTicks = [0, 80, 160, 240, 320];
-            for (const v of xTicks) {
-                const xPos = MARGIN.left + (v / 320) * CANVAS_W;
-                // Tick line
-                const tick = document.createElement("div");
-                tick.style.position = "absolute";
-                tick.style.left = xPos + "px";
-                tick.style.top = (MARGIN.top + CANVAS_H) + "px";
-                tick.style.width = "1px";
-                tick.style.height = "5px";
-                tick.style.background = "#333";
-                figure.appendChild(tick);
-                // Label
-                const lbl = document.createElement("div");
-                lbl.textContent = v;
-                lbl.style.position = "absolute";
-                lbl.style.left = (xPos - 10) + "px";
-                lbl.style.top = (MARGIN.top + CANVAS_H + 7) + "px";
-                lbl.style.fontSize = "10px";
-                lbl.style.color = "#555";
-                lbl.style.width = "20px";
-                lbl.style.textAlign = "center";
-                figure.appendChild(lbl);
-            }
-
-            // The game canvas — positioned inside the "axes"
             const canvas = document.createElement("canvas");
-            canvas.width = CANVAS_W;
-            canvas.height = CANVAS_H;
+            canvas.width = 640;
+            canvas.height = 400;
             canvas.tabIndex = 0;
-            canvas.style.position = "absolute";
-            canvas.style.left = MARGIN.left + "px";
-            canvas.style.top = MARGIN.top + "px";
             canvas.style.cursor = "crosshair";
             canvas.style.outline = "none";
-            canvas.style.border = "1px solid #333";
+            canvas.style.border = "2px solid #333";
             canvas.style.imageRendering = "pixelated";
             canvas.style.background = "#000";
+            canvas.style.display = "block";
             const ctx = canvas.getContext("2d");
-            figure.appendChild(canvas);
 
-            // Focus indicator badge (inside the axes area)
+            // Focus indicator badge
             const badge = document.createElement("div");
             badge.style.position = "absolute";
-            badge.style.top = (MARGIN.top + 8) + "px";
-            badge.style.left = (MARGIN.left + CANVAS_W - 185) + "px";
+            badge.style.top = "8px";
+            badge.style.right = "8px";
             badge.style.padding = "3px 8px";
             badge.style.borderRadius = "4px";
             badge.style.fontSize = "11px";
@@ -255,11 +153,10 @@ def _():
             badge.style.pointerEvents = "none";
             badge.style.zIndex = "10";
             badge.style.transition = "opacity 0.15s";
-            figure.appendChild(badge);
 
-            el.appendChild(figure);
-
-            // --- Game logic (unchanged) ---
+            wrapper.appendChild(canvas);
+            wrapper.appendChild(badge);
+            el.appendChild(wrapper);
 
             let active = false;
             const pressedKeys = new Set();
@@ -278,12 +175,12 @@ def _():
                 if (!val) releaseAllKeys();
                 active = val;
                 if (active) {
-                    canvas.style.border = "1px solid #4a4";
+                    canvas.style.border = "2px solid #4a4";
                     badge.textContent = "ACTIVE — press Q to release";
                     badge.style.background = "rgba(40, 120, 40, 0.85)";
                     badge.style.color = "#fff";
                 } else {
-                    canvas.style.border = "1px solid #333";
+                    canvas.style.border = "2px solid #333";
                     badge.textContent = "PAUSED — click to play";
                     badge.style.background = "rgba(50, 50, 50, 0.85)";
                     badge.style.color = "#aaa";
