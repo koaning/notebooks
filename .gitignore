@@ -11,3 +11,4 @@ transactions.csv
 **/.DS_Store
 .cache/
 **/.cache/
+*.wad
