@@ -333,6 +333,16 @@ def _(DoomCanvas, cdg, io, mo):
 
 @app.cell
 def _(RESX, RESY, cdg, doom, mo, wad_path):
+    from marimo._runtime.context import get_context, runtime_context_installed
+
+    class SharedStreamThread(mo.Thread):
+        """Reuse the parent stream so all kernel writes share one pipe lock."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            if runtime_context_installed() and self._marimo_ctx is not None:
+                self._marimo_ctx.stream = get_context().stream
+
     def start_doom():
         cdg.init(
             RESX,
@@ -345,7 +355,7 @@ def _(RESX, RESY, cdg, doom, mo, wad_path):
         cdg.main(["doom", "-iwad", wad_path])
 
 
-    doom_thread = mo.Thread(target=start_doom, daemon=True)
+    doom_thread = SharedStreamThread(target=start_doom, daemon=True)
     doom_thread.start()
     return
 
