@@ -5,7 +5,7 @@
 #     "polars==1.39.3",
 #     "numpy==2.4.4",
 #     "scikit-learn==1.8.0",
-#     "wigglystuff==0.3.4",
+#     "wigglystuff==0.3.5",
 #     "matplotlib==3.10.8",
 #     "pandas==3.0.1",
 #     "umap-learn==0.5.11",
@@ -37,12 +37,14 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Fashion MNIST — Parallel Coordinates
+    # Nested Clusters with EVoC
 
     This notebook loads the Fashion MNIST dataset, reduces the 784 pixel features
-    down to a handful of PCA components, and visualizes them with an interactive
+    down to a handful of components, and visualizes them with an interactive
     parallel coordinates plot. Use the brushes on each axis to filter and explore
-    how different clothing categories separate in PCA space.
+    how different clothing categories separate in PCA/UMAP space.
+
+    But why stop there? You can also explore clustering methods like [EVoC](https://github.com/TutteInstitute/evoc) that give you a view into nested clusters. These make the parallel coordinates more interesting, but you can also explore them with other widgets as well.
     """)
     return
 
@@ -112,23 +114,11 @@ def _(mo):
 def _(ParallelCoordinates, df, mo):
     widget = mo.ui.anywidget(ParallelCoordinates(df, height=500, color_by="label"))
     widget
-    return (widget,)
+    return
 
 
 @app.cell(hide_code=True)
-def _(idx, images, label_names, labels, np, plt, widget):
-    filtered = widget.widget.selected_indices
-    sample_idx = np.array(filtered[:10]) if len(filtered) >= 10 else np.array(filtered)
-
-    fig, axes = plt.subplots(1, len(sample_idx), figsize=(2 * len(sample_idx), 2))
-    if len(sample_idx) == 1:
-        axes = [axes]
-    for _ax, _si in zip(axes, sample_idx):
-        _ax.imshow(images[idx[_si]].reshape(28, 28), cmap="gray")
-        _ax.set_title(label_names[labels[idx[_si]]], fontsize=9)
-        _ax.axis("off")
-    plt.tight_layout()
-    fig
+def _():
     return
 
 
@@ -136,27 +126,14 @@ def _(idx, images, label_names, labels, np, plt, widget):
 def _(mo):
     mo.md(r"""
     ## Now to EVoCe a new trick!
+
+    Let's now add the cluster layers to the chart. That already gives you an interesting idea on where you might be able to find clusters.
     """)
     return
 
 
 @app.cell
-def _(mo):
-    n_clusters_slider = mo.ui.slider(1, 30, 1, label="approx_n_clusters")
-    n_clusters_slider
-    return
-
-
-@app.cell(hide_code=True)
-def _(est, idx, images):
-    sum(est.fit_predict(images[idx]) == -1)
-    return
-
-
-@app.cell
-def _(est, mo):
-    mo.inspect(est, methods=True)
-
+def _(est):
     est.cluster_layers_
     return
 
@@ -174,7 +151,34 @@ def _(EVoC, ParallelCoordinates, df, idx, images, mo, np):
 
     evoc_widget = mo.ui.anywidget(ParallelCoordinates(pltr, height=500, color_by="label"))
     evoc_widget
-    return (est,)
+    return est, evoc_widget
+
+
+@app.cell(hide_code=True)
+def _(evoc_widget, idx, images, label_names, labels, np, plt):
+    _filtered = evoc_widget.selected_indices
+    _sample_idx = np.array(_filtered[:10]) if len(_filtered) >= 10 else np.array(_filtered)
+
+    _fig, _axes = plt.subplots(1, len(_sample_idx), figsize=(2 * len(_sample_idx), 2))
+    if len(_sample_idx) == 1:
+        _axes = [_axes]
+    for _ax, _si in zip(_axes, _sample_idx):
+        _ax.imshow(images[idx[_si]].reshape(28, 28), cmap="gray")
+        _ax.set_title(label_names[labels[idx[_si]]], fontsize=9)
+        _ax.axis("off")
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Treemap
+
+    You can also explore this data using a treemap. That's what we do below.
+    """)
+    return
 
 
 @app.cell
@@ -182,10 +186,10 @@ def _(df, est, mo, pl):
     from wigglystuff import Treemap, NestedTable
 
     treemapped = df.select(c0=est.cluster_layers_[2], c1=est.cluster_layers_[1], c2=est.cluster_layers_[0], n=pl.lit(1), r=pl.row_index())
-    
+
     _agg = treemapped.group_by("c0", "c1", "c2").len().sort("len", descending=True)
 
-    treemap = mo.ui.anywidget(Treemap.from_dataframe(_agg, path_cols=["c0", "c1", "c2"]))
+    treemap = mo.ui.anywidget(Treemap.from_dataframe(_agg, path_cols=["c0", "c1", "c2"], width="100%", height=500))
     treemap
     return treemap, treemapped
 
@@ -210,17 +214,9 @@ def _(idx, images, label_names, labels, np, plt, subset):
 @app.cell
 def _(pl, treemap, treemapped):
     subset = treemapped
-    for col, val in enumerate(treemap.selected_path[1:]):
+    for col, val in enumerate(treemap.hovered_path[1:]):
         subset = subset.filter(pl.col(f"c{col}") == int(val))
     return (subset,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    But what if we consider such clusters to be more like features?
-    """)
-    return
 
 
 @app.cell
