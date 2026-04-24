@@ -9,17 +9,17 @@
     "implement-paper": {
       "source": "marimo-team/skills",
       "sourceType": "github",
-      "computedHash": "f08d521800f34c952012f306e5429bb1e87527432566273083ea9f1bc96897e7"
+      "computedHash": "aa30bbcc39bf51a5f6abea45ce537d21bfa018c875f4378707666c572d891d73"
     },
     "marimo-batch": {
       "source": "marimo-team/skills",
       "sourceType": "github",
-      "computedHash": "b697e72139093c633f2b34b56e0b02c69c5ebff53e4ebdd3c0fbe033a2af5f84"
+      "computedHash": "8af0436514aac6a0317733cb0897adc08026a22e82c5beb1ed92eb4bba7e5f4f"
     },
     "marimo-notebook": {
       "source": "marimo-team/skills",
       "sourceType": "github",
-      "computedHash": "48a44d4a8cf223adabad6b28d12134eb8751f4ef4d867474d2f1737c8bf920a4"
+      "computedHash": "4271f43564b3b8bb41cba36ae4b9ada0164430cc3a1f81267bd5f8cc2d602a9e"
     },
     "marimo-pair": {
       "source": "marimo-team/marimo-pair",
