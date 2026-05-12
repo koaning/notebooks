@@ -39,7 +39,9 @@ def _(mo):
     key.
 
     This notebook lets you pick **three** image models, type a prompt, and
-    optionally sketch a reference, then see the results side-by-side.
+    optionally sketch a reference, then see the results side-by-side. When you
+    like one of the results, promote it to **stage 2** to draw annotations on
+    top and iterate.
     """)
     return
 
@@ -106,6 +108,7 @@ def _(Paint, mo):
 def _(aspect, button, mo, model_a, model_b, model_c, paint, prompt):
     mo.vstack(
         [
+            mo.md("## Stage 1: Generate"),
             paint,
             mo.hstack([model_a, model_b, model_c], justify="start"),
             prompt,
@@ -116,61 +119,17 @@ def _(aspect, button, mo, model_a, model_b, model_c, paint, prompt):
 
 
 @app.cell(hide_code=True)
-def _(
-    aspect,
-    button,
-    generate_image,
-    mo,
-    model_a,
-    model_b,
-    model_c,
-    paint,
-    paint_to_data_url,
-    prompt,
-):
-    mo.stop(
-        not button.value,
-        mo.md("*Pick three models, write a prompt (optionally sketch a reference), then click **Generate**.*"),
-    )
-
-    image_data_url = paint_to_data_url(paint.get_pil())
-
-    selections = [model_a.value, model_b.value, model_c.value]
-    results = [
-        (name, *generate_image(name, prompt.value, aspect.value, image_data_url))
-        for name in selections
-    ]
-
-    def header(name, elapsed, cost):
-        cost_str = f"${cost:.4f}" if cost is not None else "cost n/a"
-        return mo.Html(
-            f'<div style="line-height:1.15;margin:0;padding:0;">'
-            f'<div style="font-weight:600;">{name}</div>'
-            f'<div style="font-size:0.8em;color:#888;">'
-            f'{elapsed:.1f}s &middot; {cost_str}'
-            f'</div></div>'
-        )
-
-    columns = [
-        mo.vstack(
-            [
-                header(name, elapsed, cost),
-                content if not isinstance(content, str) else mo.md(f"_{content}_"),
-            ],
-            gap=0.25,
-        )
-        for name, content, cost, elapsed in results
-    ]
-    mo.hstack(columns, widths="equal")
-    return
-
-
-@app.cell(hide_code=True)
-def _(ASPECTS, Image, ImageOps, OpenAI, base64, env_config, io, time):
+def _(ASPECTS, Image, ImageOps, OpenAI, base64, env_config, io, mo, time):
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=env_config.widget["OPENROUTER_API_KEY"],
     )
+
+    def image_to_data_url(pil_img):
+        buf = io.BytesIO()
+        pil_img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        return f"data:image/png;base64,{b64}"
 
     def paint_to_data_url(pil_img):
         if pil_img is None:
@@ -179,10 +138,7 @@ def _(ASPECTS, Image, ImageOps, OpenAI, base64, env_config, io, time):
         extrema = rgb.getextrema()
         if all(lo == 255 and hi == 255 for lo, hi in extrema):
             return None
-        buf = io.BytesIO()
-        pil_img.save(buf, format="PNG")
-        b64 = base64.b64encode(buf.getvalue()).decode()
-        return f"data:image/png;base64,{b64}"
+        return image_to_data_url(pil_img)
 
     def generate_image(model, prompt_text, aspect_key, image_data_url=None):
         spec = ASPECTS[aspect_key]
@@ -223,7 +179,207 @@ def _(ASPECTS, Image, ImageOps, OpenAI, base64, env_config, io, time):
         except Exception as exc:
             return f"{type(exc).__name__}: {exc}", None, time.perf_counter() - start
 
-    return generate_image, paint_to_data_url
+    def header(name, elapsed, cost):
+        cost_str = f"${cost:.4f}" if cost is not None else "cost n/a"
+        return mo.Html(
+            f'<div style="line-height:1.15;margin:0;padding:0;">'
+            f'<div style="font-weight:600;">{name}</div>'
+            f'<div style="font-size:0.8em;color:#888;">'
+            f'{elapsed:.1f}s &middot; {cost_str}'
+            f'</div></div>'
+        )
+
+    return generate_image, header, image_to_data_url, paint_to_data_url
+
+
+@app.cell
+def _(mo):
+    selected_image, set_selected_image = mo.state(None)
+    return selected_image, set_selected_image
+
+
+@app.cell(hide_code=True)
+def _(
+    Image,
+    aspect,
+    button,
+    generate_image,
+    mo,
+    model_a,
+    model_b,
+    model_c,
+    paint,
+    paint_to_data_url,
+    prompt,
+):
+    mo.stop(
+        not button.value,
+        mo.md("*Pick three models, write a prompt (optionally sketch a reference), then click **Generate**.*"),
+    )
+
+    image_data_url = paint_to_data_url(paint.get_pil())
+    selections = [model_a.value, model_b.value, model_c.value]
+    results = [
+        (name, *generate_image(name, prompt.value, aspect.value, image_data_url))
+        for name in selections
+    ]
+    images = [r[1] if isinstance(r[1], Image.Image) else None for r in results]
+    return images, results
+
+
+@app.cell(hide_code=True)
+def _(images, mo, set_selected_image):
+    def make_cb(img):
+        def cb(v):
+            if img is not None:
+                set_selected_image(img)
+            return v + 1
+        return cb
+
+    use_buttons = mo.ui.array(
+        [
+            mo.ui.button(
+                value=0,
+                on_click=make_cb(img),
+                label="Use this →",
+                disabled=img is None,
+            )
+            for img in images
+        ]
+    )
+    return (use_buttons,)
+
+
+@app.cell(hide_code=True)
+def _(Image, header, mo, results, use_buttons):
+    _columns = [
+        mo.vstack(
+            [
+                header(name, elapsed, cost),
+                content if isinstance(content, Image.Image) else mo.md(f"_{content}_"),
+                use_buttons[idx],
+            ],
+            gap=0.25,
+        )
+        for idx, (name, content, cost, elapsed) in enumerate(results)
+    ]
+    mo.hstack(_columns, widths="equal")
+    return
+
+
+@app.cell(hide_code=True)
+def _(Paint, mo, selected_image):
+    sel = selected_image()
+    if sel is None:
+        paint2 = None
+    else:
+        paint2 = mo.ui.anywidget(Paint(init_image=sel, store_background=True))
+    return (paint2,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    prompt2 = mo.ui.text_area(
+        value="Improve this image, following the annotations drawn on top.",
+        label="Refinement prompt",
+        rows=2,
+        full_width=True,
+    )
+    button2 = mo.ui.run_button(label="Generate refinements")
+    return button2, prompt2
+
+
+@app.cell(hide_code=True)
+def _(aspect, button2, mo, model_a, model_b, model_c, paint2, prompt2):
+    if paint2 is None:
+        block = mo.md(
+            "---\n\n"
+            "## Stage 2: Refine\n\n"
+            "*Click **Use this →** under any image above to bring it here.*"
+        )
+    else:
+        block = mo.vstack(
+            [
+                mo.md("---\n\n## Stage 2: Refine"),
+                mo.md("*Sketch annotations on top of the image below, then generate.*"),
+                paint2,
+                mo.hstack([model_a, model_b, model_c], justify="start"),
+                prompt2,
+                mo.hstack([aspect, button2], justify="start"),
+            ]
+        )
+    block
+    return
+
+
+@app.cell(hide_code=True)
+def _(
+    Image,
+    aspect,
+    button2,
+    generate_image,
+    image_to_data_url,
+    mo,
+    model_a,
+    model_b,
+    model_c,
+    paint2,
+    prompt2,
+):
+    mo.stop(paint2 is None, None)
+    mo.stop(
+        not button2.value,
+        mo.md("*Draw on the image and click **Generate refinements**.*"),
+    )
+
+    refined_url = image_to_data_url(paint2.get_pil())
+    selections2 = [model_a.value, model_b.value, model_c.value]
+    results2 = [
+        (name, *generate_image(name, prompt2.value, aspect.value, refined_url))
+        for name in selections2
+    ]
+    images2 = [r[1] if isinstance(r[1], Image.Image) else None for r in results2]
+    return images2, results2
+
+
+@app.cell(hide_code=True)
+def _(images2, mo, set_selected_image):
+    def make_cb2(img):
+        def cb(v):
+            if img is not None:
+                set_selected_image(img)
+            return v + 1
+        return cb
+
+    use_buttons2 = mo.ui.array(
+        [
+            mo.ui.button(
+                value=0,
+                on_click=make_cb2(img),
+                label="Use this →",
+                disabled=img is None,
+            )
+            for img in images2
+        ]
+    )
+    return (use_buttons2,)
+
+
+@app.cell(hide_code=True)
+def _(Image, header, mo, results2, use_buttons2):
+    _columns2 = [
+        mo.vstack(
+            [
+                header(name, elapsed, cost),
+                content if isinstance(content, Image.Image) else mo.md(f"_{content}_"),
+                use_buttons2[idx],
+            ],
+            gap=0.25,
+        )
+        for idx, (name, content, cost, elapsed) in enumerate(results2)
+    ]
+    mo.hstack(_columns2, widths="equal")
+    return
 
 
 if __name__ == "__main__":
