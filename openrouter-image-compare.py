@@ -1,0 +1,230 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "marimo",
+#     "openai",
+#     "wigglystuff",
+#     "pillow",
+# ]
+# ///
+
+import marimo
+
+__generated_with = "0.23.6"
+app = marimo.App(width="medium")
+
+
+@app.cell
+def _():
+    import base64
+    import io
+    import time
+
+    import marimo as mo
+    from openai import OpenAI
+    from PIL import Image, ImageOps
+    from wigglystuff import EnvConfig, Paint
+
+    return EnvConfig, Image, ImageOps, OpenAI, Paint, base64, io, mo, time
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    # OpenRouter: image-model bake-off
+
+    [OpenRouter](https://openrouter.ai/) now exposes [image generation](https://openrouter.ai/collections/image-models) through its chat-completions API by
+    passing `extra_body={"modalities": ["image"]}`. That means we can compare
+    image output across very different providers using one API surface and one
+    key.
+
+    This notebook lets you pick **three** image models, type a prompt, and
+    optionally sketch a reference, then see the results side-by-side.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(EnvConfig, OpenAI, mo):
+    def check_openrouter_key(k):
+        OpenAI(base_url="https://openrouter.ai/api/v1", api_key=k).models.list()
+
+    env_config = mo.ui.anywidget(
+        EnvConfig({"OPENROUTER_API_KEY": check_openrouter_key})
+    )
+    env_config
+    return (env_config,)
+
+
+@app.cell(hide_code=True)
+def _(env_config):
+    env_config.require_valid()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    MODELS = [
+        "bytedance-seed/seedream-4.5",
+        "google/gemini-2.5-flash-image",
+        "black-forest-labs/flux.2-pro",
+        "black-forest-labs/flux.2-klein-4b",
+        "openai/gpt-5-image-mini",
+        "openai/gpt-5-image",
+        "stability-ai/stable-diffusion-3.5-large",
+    ]
+
+    model_a = mo.ui.dropdown(MODELS, value=MODELS[0], label="Model A")
+    model_b = mo.ui.dropdown(MODELS, value=MODELS[1], label="Model B")
+    model_c = mo.ui.dropdown(MODELS, value=MODELS[2], label="Model C")
+    return model_a, model_b, model_c
+
+
+@app.cell(hide_code=True)
+def _(Paint, mo):
+    ASPECTS = {
+        "1:1": {"api": "1024x1024", "display": (400, 400)},
+        "16:9": {"api": "1280x720", "display": (480, 270)},
+        "9:16": {"api": "720x1280", "display": (270, 480)},
+        "4:3": {"api": "1152x864", "display": (400, 300)},
+        "3:4": {"api": "864x1152", "display": (300, 400)},
+    }
+
+    prompt = mo.ui.text_area(
+        value="A beautiful sunset over mountains",
+        label="Prompt",
+        rows=3,
+        full_width=True,
+    )
+    paint = mo.ui.anywidget(Paint(width=320, height=200))
+    aspect = mo.ui.dropdown(list(ASPECTS.keys()), value="1:1", label="Aspect")
+    button = mo.ui.run_button(label="Generate")
+    return ASPECTS, aspect, button, paint, prompt
+
+
+@app.cell(hide_code=True)
+def _(aspect, button, mo, model_a, model_b, model_c, paint, prompt):
+    mo.vstack(
+        [
+            paint,
+            mo.hstack([model_a, model_b, model_c], justify="start"),
+            prompt,
+            mo.hstack([aspect, button], justify="start"),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(
+    aspect,
+    button,
+    generate_image,
+    mo,
+    model_a,
+    model_b,
+    model_c,
+    paint,
+    paint_to_data_url,
+    prompt,
+):
+    mo.stop(
+        not button.value,
+        mo.md("*Pick three models, write a prompt (optionally sketch a reference), then click **Generate**.*"),
+    )
+
+    image_data_url = paint_to_data_url(paint.get_pil())
+
+    selections = [model_a.value, model_b.value, model_c.value]
+    results = [
+        (name, *generate_image(name, prompt.value, aspect.value, image_data_url))
+        for name in selections
+    ]
+
+    def header(name, elapsed, cost):
+        cost_str = f"${cost:.4f}" if cost is not None else "cost n/a"
+        return mo.Html(
+            f'<div style="line-height:1.15;margin:0;padding:0;">'
+            f'<div style="font-weight:600;">{name}</div>'
+            f'<div style="font-size:0.8em;color:#888;">'
+            f'{elapsed:.1f}s &middot; {cost_str}'
+            f'</div></div>'
+        )
+
+    columns = [
+        mo.vstack(
+            [
+                header(name, elapsed, cost),
+                content if not isinstance(content, str) else mo.md(f"_{content}_"),
+            ],
+            gap=0.25,
+        )
+        for name, content, cost, elapsed in results
+    ]
+    mo.hstack(columns, widths="equal")
+    return
+
+
+@app.cell(hide_code=True)
+def _(ASPECTS, Image, ImageOps, OpenAI, base64, env_config, io, time):
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=env_config.widget["OPENROUTER_API_KEY"],
+    )
+
+    def paint_to_data_url(pil_img):
+        if pil_img is None:
+            return None
+        rgb = pil_img.convert("RGB")
+        extrema = rgb.getextrema()
+        if all(lo == 255 and hi == 255 for lo, hi in extrema):
+            return None
+        buf = io.BytesIO()
+        pil_img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        return f"data:image/png;base64,{b64}"
+
+    def generate_image(model, prompt_text, aspect_key, image_data_url=None):
+        spec = ASPECTS[aspect_key]
+        if image_data_url:
+            content = [
+                {"type": "text", "text": prompt_text},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ]
+        else:
+            content = prompt_text
+        start = time.perf_counter()
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": content}],
+                extra_body={
+                    "modalities": ["image"],
+                    "usage": {"include": True},
+                    "size": spec["api"],
+                },
+            )
+            elapsed = time.perf_counter() - start
+            usage = response.usage
+            cost = getattr(usage, "cost", None)
+            if cost is None and usage is not None:
+                cost = (getattr(usage, "model_extra", None) or {}).get("cost")
+            message = response.choices[0].message
+            images = getattr(message, "images", None) or []
+            if not images:
+                return f"No image returned. Text reply: {message.content!r}", cost, elapsed
+            url = images[0]["image_url"]["url"]
+            if url.startswith("data:"):
+                _, b64 = url.split(",", 1)
+                img = Image.open(io.BytesIO(base64.b64decode(b64)))
+                img = ImageOps.fit(img, spec["display"], Image.LANCZOS)
+                return img, cost, elapsed
+            return url, cost, elapsed
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}", None, time.perf_counter() - start
+
+    return generate_image, paint_to_data_url
+
+
+if __name__ == "__main__":
+    app.run()
