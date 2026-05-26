@@ -291,10 +291,9 @@ def _(
         if invert:
             normalized_depth = 1.0 - normalized_depth
 
-        rows, cols = normalized_depth.shape
-        yy, xx = np.mgrid[0:rows, 0:cols]
-        x = (xx / max(cols - 1, 1) - 0.5) * 2
-        y = -(yy / max(rows - 1, 1) - 0.5) * 2 * (height / width)
+        sample_y, sample_x = np.mgrid[0:height:stride, 0:width:stride]
+        x = (sample_x - (width - 1) / 2) / max((width - 1) / 2, 1)
+        y = -((sample_y - (height - 1) / 2) / max((width - 1) / 2, 1))
         z = (normalized_depth - 0.5) * z_scale
 
         flat_rgb = sampled_rgb.reshape(-1, 3)
@@ -318,14 +317,15 @@ def _(
         depth_scale.value,
         invert_depth.value,
     )
+    image_aspect = inference_image.size[1] / inference_image.size[0]
     depth_widget = mo.ui.anywidget(
         ThreeWidget(
             data=point_cloud,
             width=760,
             height=520,
-            show_grid=True,
-            show_axes=True,
-            axis_labels=["x", "y", "depth"],
+            xlim=(-1.0, 1.0),
+            ylim=(-image_aspect, image_aspect),
+            zlim=(-depth_scale.value / 2, depth_scale.value / 2),
             camera_azimuth=35,
             camera_elevation=25,
         )
