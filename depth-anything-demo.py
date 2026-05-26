@@ -65,7 +65,7 @@ def _(mo):
     invert_depth = mo.ui.checkbox(value=False, label="Invert depth")
     point_count = mo.ui.slider(
         start=1000,
-        stop=20000,
+        stop=50000,
         step=1000,
         value=8000,
         label="3D points",
