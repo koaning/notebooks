@@ -7,6 +7,7 @@
 #     "pillow",
 #     "torch",
 #     "transformers",
+#     "wigglystuff==0.5.3",
 # ]
 # ///
 
@@ -26,8 +27,9 @@ def _():
     import torch
     from PIL import Image, ImageDraw
     from transformers import pipeline
+    from wigglystuff import ThreeWidget
 
-    return Image, ImageDraw, io, mo, np, pipeline, plt, torch
+    return Image, ImageDraw, ThreeWidget, io, mo, np, pipeline, plt, torch
 
 
 @app.cell
@@ -61,15 +63,30 @@ def _(mo):
         label="Colormap",
     )
     invert_depth = mo.ui.checkbox(value=False, label="Invert depth")
-    return colormap, invert_depth, max_side, upload
+    point_count = mo.ui.slider(
+        start=1000,
+        stop=20000,
+        step=1000,
+        value=8000,
+        label="3D points",
+    )
+    depth_scale = mo.ui.slider(
+        start=0.25,
+        stop=4.0,
+        step=0.25,
+        value=1.5,
+        label="Depth scale",
+    )
+    return colormap, depth_scale, invert_depth, max_side, point_count, upload
 
 
 @app.cell
-def _(colormap, invert_depth, max_side, mo, upload):
+def _(colormap, depth_scale, invert_depth, max_side, mo, point_count, upload):
     mo.vstack(
         [
             upload,
             mo.hstack([max_side, colormap, invert_depth], justify="start"),
+            mo.hstack([point_count, depth_scale], justify="start"),
         ]
     )
     return
@@ -220,7 +237,7 @@ def _(Image, colormap, invert_depth, np, plt, raw_depth):
         colormap.value,
         invert_depth.value,
     )
-    return depth_image, depth_max, depth_min
+    return depth_image, depth_max, depth_min, depth_to_array
 
 
 @app.cell
@@ -237,13 +254,107 @@ def _(depth_image, inference_image, mo):
 
 
 @app.cell
-def _(depth_max, depth_min, device_label, inference_image, mo, model_id):
-    mo.md(
-        f"**Model:** `{model_id}`  \n"
-        f"**Device:** `{device_label}`  \n"
-        f"**Inference size:** `{inference_image.size[0]} x {inference_image.size[1]}`  \n"
-        f"**Raw depth range:** `{depth_min:.3f}` to `{depth_max:.3f}`"
+def _(
+    Image,
+    ThreeWidget,
+    depth_scale,
+    depth_to_array,
+    inference_image,
+    invert_depth,
+    mo,
+    np,
+    point_count,
+    raw_depth,
+):
+    def make_depth_point_cloud(image, depth, max_points, z_scale, invert):
+        rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+        depth_arr = depth_to_array(depth)
+
+        if depth_arr.shape[:2] != rgb.shape[:2]:
+            depth_arr = np.asarray(
+                Image.fromarray(depth_arr).resize(image.size),
+                dtype=np.float32,
+            )
+
+        height, width = depth_arr.shape[:2]
+        stride = max(1, int(np.sqrt((height * width) / max_points)))
+        sampled_depth = depth_arr[::stride, ::stride]
+        sampled_rgb = rgb[::stride, ::stride]
+
+        depth_min = float(sampled_depth.min())
+        depth_max = float(sampled_depth.max())
+        denom = depth_max - depth_min
+        if denom == 0:
+            normalized_depth = np.zeros_like(sampled_depth, dtype=np.float32)
+        else:
+            normalized_depth = (sampled_depth - depth_min) / denom
+        if invert:
+            normalized_depth = 1.0 - normalized_depth
+
+        rows, cols = normalized_depth.shape
+        yy, xx = np.mgrid[0:rows, 0:cols]
+        x = (xx / max(cols - 1, 1) - 0.5) * 2
+        y = -(yy / max(rows - 1, 1) - 0.5) * 2 * (height / width)
+        z = (normalized_depth - 0.5) * z_scale
+
+        flat_rgb = sampled_rgb.reshape(-1, 3)
+        colors = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in flat_rgb]
+        return [
+            {
+                "x": float(px),
+                "y": float(py),
+                "z": float(pz),
+                "color": color,
+                "size": 0.025,
+                "opacity": 0.92,
+            }
+            for px, py, pz, color in zip(x.ravel(), y.ravel(), z.ravel(), colors)
+        ]
+
+    point_cloud = make_depth_point_cloud(
+        inference_image,
+        raw_depth,
+        point_count.value,
+        depth_scale.value,
+        invert_depth.value,
     )
+    depth_widget = mo.ui.anywidget(
+        ThreeWidget(
+            data=point_cloud,
+            width=760,
+            height=520,
+            show_grid=True,
+            show_axes=True,
+            axis_labels=["x", "y", "depth"],
+            camera_azimuth=35,
+            camera_elevation=25,
+        )
+    )
+    return depth_widget, point_cloud
+
+
+@app.cell
+def _(depth_widget, mo, point_cloud):
+    mo.vstack(
+        [
+            mo.md(f"## 3D depth point cloud ({len(point_cloud):,} points)"),
+            depth_widget,
+        ]
+    )
+    return
+
+
+@app.cell
+def _(depth_max, depth_min, device_label, inference_image, mo, model_id):
+    metadata = "\n".join(
+        [
+            f"**Model:** `{model_id}`  ",
+            f"**Device:** `{device_label}`  ",
+            f"**Inference size:** `{inference_image.size[0]} x {inference_image.size[1]}`  ",
+            f"**Raw depth range:** `{depth_min:.3f}` to `{depth_max:.3f}`",
+        ]
+    )
+    mo.md(metadata)
     return
 
 
