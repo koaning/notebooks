@@ -25,25 +25,22 @@ def _():
     import matplotlib.pyplot as plt
     import numpy as np
     import torch
-    from PIL import Image, ImageDraw
+    from PIL import Image
     from transformers import pipeline
     from wigglystuff import ThreeWidget
 
-    return Image, ImageDraw, ThreeWidget, io, mo, np, pipeline, plt, torch
+    return Image, ThreeWidget, io, mo, np, pipeline, plt, torch
 
 
 @app.cell
 def _(mo):
-    mo.Html(
-        """
-        <h1>Depth Anything V2</h1>
-        <p>
-          Upload a photo and inspect the model's relative depth estimate.
-          Brightness in the depth map is normalized per image, so it should be
-          read as relative structure rather than metric distance.
-        </p>
-        """
-    )
+    mo.md("""
+    # Depth Anything V2
+
+    Upload a photo and inspect the model's relative depth estimate.
+    Brightness in the depth map is normalized per image, so it should be
+    read as relative structure rather than metric distance.
+    """)
     return
 
 
@@ -93,69 +90,19 @@ def _(colormap, depth_scale, invert_depth, max_side, mo, point_count, upload):
 
 
 @app.cell
-def _(Image, ImageDraw, np):
-    def make_sample_image():
-        width, height = 900, 600
-        y = np.linspace(0, 1, height, dtype=np.float32)[:, None]
-        sky = np.dstack(
-            [
-                120 + 70 * (1 - y),
-                165 + 55 * (1 - y),
-                210 + 35 * (1 - y),
-            ]
-        )
-        ground = np.dstack(
-            [
-                75 + 30 * y,
-                115 + 45 * y,
-                85 + 20 * y,
-            ]
-        )
-        base = np.zeros((height, width, 3), dtype=np.uint8)
-        horizon = int(height * 0.45)
-        base[:horizon] = sky[:horizon]
-        base[horizon:] = ground[horizon:]
+def _(Image):
+    def load_default_image():
+        return Image.open("depth-demo-image.png").convert("RGB")
 
-        image = Image.fromarray(base).convert("RGB")
-        draw = ImageDraw.Draw(image)
-
-        draw.rectangle([610, 145, 760, 385], fill="#c65f46", outline="#6d3328", width=5)
-        draw.polygon([(590, 145), (685, 70), (780, 145)], fill="#8b2f2a")
-        draw.rectangle([655, 255, 715, 385], fill="#573126")
-
-        draw.ellipse([95, 285, 245, 435], fill="#d9b36c", outline="#6d5534", width=5)
-        draw.ellipse([132, 322, 208, 398], fill="#f2dc9b")
-
-        for x, scale in [(345, 0.8), (430, 1.05), (515, 1.3)]:
-            top = int(300 - scale * 95)
-            bottom = int(445 + scale * 12)
-            draw.rectangle([x, top, x + int(22 * scale), bottom], fill="#6b4a2f")
-            draw.ellipse(
-                [
-                    x - int(38 * scale),
-                    top - int(45 * scale),
-                    x + int(60 * scale),
-                    top + int(50 * scale),
-                ],
-                fill="#2f7f4f",
-            )
-
-        for i in range(12):
-            x0 = 35 + i * 75
-            y0 = 505 + i * 4
-            draw.line([x0, y0, x0 + 70, y0 + 16], fill="#ddd2b2", width=3)
-
-        return image
-
-    return (make_sample_image,)
+    return (load_default_image,)
 
 
 @app.cell
-def _(Image, io, make_sample_image, upload):
+def _(Image, io, load_default_image, upload):
     def load_uploaded_image(file_list):
         if file_list:
             return Image.open(io.BytesIO(file_list[0].contents)).convert("RGB")
-        return make_sample_image()
+        return load_default_image()
 
     source_image = load_uploaded_image(upload.value)
     return (source_image,)
