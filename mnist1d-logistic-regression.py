@@ -5,6 +5,7 @@
 #     "matplotlib>=3.10.0",
 #     "mnist1d>=0.0.2",
 #     "scikit-learn>=1.7.0",
+#     "torch>=2.7.0",
 # ]
 # ///
 
@@ -21,6 +22,8 @@ def _():
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
+    import torch
+    from torch import nn
     from mnist1d.data import get_dataset, get_dataset_args
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import (
@@ -40,8 +43,10 @@ def _():
         get_dataset,
         get_dataset_args,
         mo,
+        nn,
         np,
         plt,
+        torch,
     )
 
 
@@ -166,6 +171,93 @@ def _(classification_report, test_predictions, y_test):
             zero_division=0,
         )
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Double descent
+
+    The paper observes double descent after corrupting 15% of the training
+    labels. This compact version uses full-batch Adam and fewer hidden widths
+    so the experiment finishes quickly.
+    """)
+    return
+
+
+@app.cell
+def _(X_test, X_train, nn, np, torch, y_test, y_train):
+    _rng = np.random.default_rng(42)
+    noisy_labels = y_train.copy()
+    _noise_mask = _rng.random(len(noisy_labels)) < 0.15
+    noisy_labels[_noise_mask] = _rng.integers(0, 10, _noise_mask.sum())
+
+    _x_train = torch.tensor(X_train, dtype=torch.float32)
+    _y_train = torch.tensor(noisy_labels, dtype=torch.long)
+    _x_test = torch.tensor(X_test, dtype=torch.float32)
+    _y_test = torch.tensor(y_test, dtype=torch.long)
+
+    hidden_widths = np.array([2, 5, 10, 20, 35, 50, 75, 110, 160, 230, 300])
+
+    def fit_mlp(_width):
+        torch.manual_seed(42)
+        _network = nn.Sequential(
+            nn.Linear(40, _width),
+            nn.ReLU(),
+            nn.Linear(_width, _width),
+            nn.ReLU(),
+            nn.Linear(_width, 10),
+        )
+        _optimizer = torch.optim.Adam(_network.parameters(), lr=0.01)
+
+        for _ in range(500):
+            _optimizer.zero_grad()
+            _loss = nn.functional.cross_entropy(_network(_x_train), _y_train)
+            _loss.backward()
+            _optimizer.step()
+
+        with torch.no_grad():
+            _train_error = (
+                (_network(_x_train).argmax(1) != _y_train).float().mean().item()
+            )
+            _test_error = (
+                (_network(_x_test).argmax(1) != _y_test).float().mean().item()
+            )
+        return 100 * _train_error, 100 * _test_error
+
+    _errors = np.array([fit_mlp(_width) for _width in hidden_widths])
+    train_errors = _errors[:, 0]
+    test_errors = _errors[:, 1]
+    return hidden_widths, test_errors, train_errors
+
+
+@app.cell
+def _(hidden_widths, np, plt, test_errors, train_errors):
+    _figure, _axis = plt.subplots(figsize=(7, 4))
+    _axis.plot(hidden_widths, train_errors, "o--", label="Train error")
+    _axis.plot(hidden_widths, test_errors, "o-", label="Test error")
+
+    _interpolating = np.flatnonzero(train_errors < 1)
+    if len(_interpolating):
+        _threshold = hidden_widths[_interpolating[0]]
+        _axis.axvline(
+            _threshold,
+            color="black",
+            linestyle=":",
+            label=f"Interpolation threshold ({_threshold})",
+        )
+
+    _axis.set(
+        xscale="log",
+        xlabel="Hidden layer width",
+        ylabel="Classification error (%)",
+        title="Double descent with 15% label noise",
+    )
+    _axis.legend()
+    _axis.grid(alpha=0.2)
+    _figure.tight_layout()
+    _figure
     return
 
 
