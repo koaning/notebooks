@@ -1,5 +1,10 @@
 # /// script
-# dependencies = ["marimo"]
+# dependencies = [
+#     "marimo",
+#     "matplotlib==3.10.9",
+#     "numpy==2.4.6",
+#     "wigglystuff==0.5.9",
+# ]
 # requires-python = ">=3.14"
 # ///
 
@@ -278,33 +283,31 @@ def _(np):
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    get_a, set_a = mo.state(-1.4)
-    get_b, set_b = mo.state(1.6)
-    get_c, set_c = mo.state(1.0)
-    get_d, set_d = mo.state(0.7)
+def _():
+    INIT_A, INIT_B = -1.4, 1.6
+    INIT_C, INIT_D = 1.0, 0.7
 
-    return get_a, get_b, get_c, get_d, set_a, set_b, set_c, set_d
+    return INIT_A, INIT_B, INIT_C, INIT_D
 
 
 @app.cell(hide_code=True)
 def _(
     ChartPuck,
-    get_a,
-    get_b,
-    get_c,
-    get_d,
+    INIT_A,
+    INIT_B,
+    INIT_C,
+    INIT_D,
+    clifford,
     gres_slider,
     score_ab_grid,
     score_cd_grid,
-    set_a,
-    set_b,
-    set_c,
-    set_d,
 ):
     def _ab_draw(ax, widget):
-        c_val = get_c()
-        d_val = get_d()
+        try:
+            c_val = cd_puck.x[0]
+            d_val = cd_puck.y[0]
+        except NameError:
+            c_val, d_val = INIT_C, INIT_D
         gres = int(gres_slider.value)
         _, _, cov = score_ab_grid(c_val, d_val, gres=gres)
         ax.imshow(
@@ -327,15 +330,16 @@ def _(
         x_bounds=(-2.5, 2.5),
         y_bounds=(-2.5, 2.5),
         figsize=(3, 3),
-        x=get_a(),
-        y=get_b(),
+        x=INIT_A,
+        y=INIT_B,
         puck_radius=10,
+        throttle=150,
     )
 
 
     def _cd_draw(ax, widget):
-        a_val = get_a()
-        b_val = get_b()
+        a_val = ab_puck.x[0]
+        b_val = ab_puck.y[0]
         gres = int(gres_slider.value)
         _, _, cov = score_cd_grid(a_val, b_val, gres=gres)
         ax.imshow(
@@ -358,37 +362,16 @@ def _(
         x_bounds=(-2.5, 2.5),
         y_bounds=(-2.5, 2.5),
         figsize=(3, 3),
-        x=get_c(),
-        y=get_d(),
+        x=INIT_C,
+        y=INIT_D,
         puck_radius=10,
+        throttle=150,
     )
 
 
-    def _on_ab(_change):
-        set_a(ab_puck.x[0])
-        set_b(ab_puck.y[0])
-        cd_puck.redraw()
-
-
-    def _on_cd(_change):
-        set_c(cd_puck.x[0])
-        set_d(cd_puck.y[0])
-        ab_puck.redraw()
-
-
-    ab_puck.observe(_on_ab, names=["x", "y"])
-    cd_puck.observe(_on_cd, names=["x", "y"])
-
-    return ab_puck, cd_puck
-
-
-@app.cell(hide_code=True)
-def _(ab_puck, cd_puck, clifford, get_a, get_b, get_c, get_d, mo, plt):
-    import io as _io
-
-
-    def _render_final(a_v, b_v, c_v, d_v):
-        fig, ax = plt.subplots(figsize=(3, 3), dpi=100)
+    def _attractor_draw(ax, widget):
+        a_v, b_v = ab_puck.x[0], ab_puck.y[0]
+        c_v, d_v = cd_puck.x[0], cd_puck.y[0]
         xs, ys = clifford(a_v, b_v, c_v, d_v, 0.1, 0.0, n=80_000)
         ax.scatter(xs, ys, s=0.05, c="black", alpha=0.4)
         ax.set_xlim(-3.5, 3.5)
@@ -400,15 +383,39 @@ def _(ab_puck, cd_puck, clifford, get_a, get_b, get_c, get_d, mo, plt):
             f"a={a_v:.2f}, b={b_v:.2f}, c={c_v:.2f}, d={d_v:.2f}",
             fontsize=8,
         )
-        buf = _io.BytesIO()
-        fig.savefig(buf, format="png", dpi=100, bbox_inches=None)
-        plt.close(fig)
-        buf.seek(0)
-        return mo.image(buf.read(), width=300, height=300)
 
 
+    attractor_puck = ChartPuck.from_callback(
+        draw_fn=_attractor_draw,
+        x_bounds=(-3.5, 3.5),
+        y_bounds=(-3.5, 3.5),
+        figsize=(3, 3),
+        x=0.0,
+        y=0.0,
+        puck_radius=0,
+    )
+
+
+    def _on_ab(_change):
+        cd_puck.redraw()
+        attractor_puck.redraw()
+
+
+    def _on_cd(_change):
+        ab_puck.redraw()
+        attractor_puck.redraw()
+
+
+    ab_puck.observe(_on_ab, names=["x", "y"])
+    cd_puck.observe(_on_cd, names=["x", "y"])
+
+    return ab_puck, attractor_puck, cd_puck
+
+
+@app.cell(hide_code=True)
+def _(ab_puck, attractor_puck, cd_puck, mo):
     mo.hstack(
-        [ab_puck, cd_puck, _render_final(get_a(), get_b(), get_c(), get_d())],
+        [ab_puck, cd_puck, attractor_puck],
         justify="start",
         align="center",
         gap=1.0,
@@ -420,7 +427,7 @@ def _(ab_puck, cd_puck, clifford, get_a, get_b, get_c, get_d, mo, plt):
 @app.cell(hide_code=True)
 def _(mo):
     gres_slider = mo.ui.slider(
-        10, 80, step=2, value=30,
+        10, 220, step=2, value=30,
         label="(c, d) heatmap resolution",
         show_value=True,
     )
@@ -430,11 +437,12 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(ab_puck, cd_puck, gres_slider):
-    # Redraw both heatmaps when the resolution slider changes
+def _(ab_puck, attractor_puck, cd_puck, gres_slider):
+    # Redraw all three when the resolution slider changes
     _ = gres_slider.value
     ab_puck.redraw()
     cd_puck.redraw()
+    attractor_puck.redraw()
 
     return
 
