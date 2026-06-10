@@ -163,7 +163,22 @@ def _(gaussian_filter, np):
     _result = build_states()
     states = _result["steps"]
     shifts = _result["shifts"]
-    return DILATED_LEN, shifts, states
+    return (
+        DILATED_LEN,
+        FINAL_SEQ_LENGTH,
+        MAX_TRANSLATION,
+        PADDING,
+        SCALE_COEFF,
+        SHEAR_SCALE,
+        add_noise,
+        get_templates,
+        interpolate,
+        pad,
+        scale,
+        shear,
+        shifts,
+        states,
+    )
 
 
 @app.cell
@@ -428,7 +443,33 @@ def _(DILATED_LEN, np, shifts, states):
             self.play(FadeOut(lines), run_time=1.0)
             self.wait(2)
 
-    return (MNIST1DGeneration,)
+    return (
+        BLUE,
+        BOX_H,
+        BOX_W,
+        COLS,
+        COL_X,
+        Create,
+        DOWN,
+        Dot,
+        FadeIn,
+        FadeOut,
+        GREY,
+        MNIST1DGeneration,
+        MONO_FONT,
+        PROSE_FONT,
+        ROW_Y,
+        Rectangle,
+        ReplacementTransform,
+        Scene,
+        Text,
+        UP,
+        VGroup,
+        VMobject,
+        ValueTracker,
+        Write,
+        YELLOW,
+    )
 
 
 @app.cell(hide_code=True)
@@ -501,6 +542,7 @@ def _(MNIST1DGeneration, mo, render_button, resolution):
     config.pixel_height = _preset["height"]
     config.pixel_width = _preset["width"]
     config.frame_rate = _preset["fps"]
+    config.output_file = "MNIST1DGeneration"  # explicit so a later render can't reuse it
 
     scene = MNIST1DGeneration()
     scene.render()
@@ -519,6 +561,413 @@ def _(MNIST1DGeneration, mo, render_button, resolution):
         output = mo.md("**Error:** Could not find rendered video")
 
     output
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    # A second video: two classes, five samples each
+
+    The same pipeline, but now we only compare **class 1** (top row) and
+    **class 6** (bottom row), with five independently-randomized samples each.
+    The clean class shape is drawn in **yellow** and kept intact, while the
+    **blue** sample picks up noise. By the end you can see the pattern *is* there
+    (the yellow arc), yet how hard it is to read off the noisy blue points — which
+    is exactly why a linear model struggles.
+    """)
+    return
+
+
+@app.cell
+def _(
+    DILATED_LEN,
+    FINAL_SEQ_LENGTH,
+    MAX_TRANSLATION,
+    PADDING,
+    SCALE_COEFF,
+    SHEAR_SCALE,
+    add_noise,
+    get_templates,
+    interpolate,
+    np,
+    pad,
+    scale,
+    shear,
+):
+    def build_two_class(class_a=1, class_b=6, per_class=5, seed=11):
+        # Each panel carries two things per step:
+        #   - "blue": the actual sample (clean until the noise step, noisy after),
+        #   - "yellow": the clean signal (the pattern stays noise-free + intact),
+        # plus "bounds" = the (lo, hi) index range that is the ORIGINAL template
+        # (the discriminative pattern). We track that range through every step so
+        # the animation can paint just the pattern yellow and the rest blue.
+        rng = np.random.default_rng(seed)
+        templates = get_templates()
+        classes = [class_a] * per_class + [class_b] * per_class
+
+        def bounds(mask):
+            idx = np.nonzero(np.asarray(mask) > 0.5)[0]
+            return int(idx[0]), int(idx[-1])
+
+        panels = []
+        for cls in classes:
+            t = templates[cls]
+            p = int(rng.integers(PADDING[0], PADDING[1] + 1))
+            sc = SCALE_COEFF * (rng.random() - 0.5)
+            k = int(rng.integers(0, MAX_TRANSLATION))
+            sh = SHEAR_SCALE * (rng.random() - 0.5)
+
+            # Signal path + a parallel 0/1 mask marking the template's samples.
+            c0, m0 = t, np.ones(len(t))
+            c1, m1 = pad(c0, p), np.concatenate([np.ones(len(t)), np.zeros(p)])
+            c2, m2 = interpolate(c1, DILATED_LEN), interpolate(m1, DILATED_LEN)
+            c3 = scale(c2, sc)
+            # Shift RIGHT so the pattern (which starts at the left) slides into the
+            # frame and stays contiguous (no wrap), making it easy to track.
+            c4, m4 = np.roll(c3, k), np.roll(m2, k)
+            c6 = shear(c4, sh)  # clean path skips the noise step
+            c7, m7 = interpolate(c6, FINAL_SEQ_LENGTH), interpolate(m4, FINAL_SEQ_LENGTH)
+
+            n5 = add_noise(c4, rng)  # the blue sample picks up noise here
+            n6 = shear(n5, sh)
+            n7 = interpolate(n6, FINAL_SEQ_LENGTH)
+
+            panels.append(
+                {
+                    "cls": cls,
+                    "blue": [c0, c1, c2, c3, c4, n5, n6, n7],
+                    "yellow": [c0, c1, c2, c3, c4, c4, c6, c7],
+                    "bounds": [
+                        bounds(m0),
+                        bounds(m1),
+                        bounds(m2),
+                        bounds(m2),
+                        bounds(m4),
+                        bounds(m4),
+                        bounds(m4),
+                        bounds(m7),
+                    ],
+                    "shift": k,
+                }
+            )
+        return panels
+
+    panels2 = build_two_class()
+    shifts2 = [pn["shift"] for pn in panels2]
+    captions2 = [
+        "two class templates: 1 (top), 6 (bottom)",
+        "pad — the pattern (yellow) stays; zeros (blue) fill the rest",
+        "dilate — stretch to a common length (72)",
+        "scale — stretch the amplitude",
+        "translate — the pattern slides to a new spot",
+        "add noise — the blue sample gets noisy; the yellow pattern stays",
+        "shear — add a linear tilt",
+        "subsample — same pattern, a different spot each time",
+    ]
+    return captions2, panels2, shifts2
+
+
+@app.cell
+def _(
+    BLUE,
+    BOX_H,
+    BOX_W,
+    COLS,
+    COL_X,
+    Create,
+    DILATED_LEN,
+    DOWN,
+    Dot,
+    FadeIn,
+    FadeOut,
+    GREY,
+    MONO_FONT,
+    PROSE_FONT,
+    ROW_Y,
+    Rectangle,
+    ReplacementTransform,
+    Scene,
+    Text,
+    UP,
+    VGroup,
+    VMobject,
+    ValueTracker,
+    Write,
+    YELLOW,
+    captions2,
+    np,
+    panels2,
+    shifts2,
+):
+    GRID = DILATED_LEN
+
+    _allv = np.concatenate(
+        [a for pn in panels2 for a in pn["blue"]]
+        + [a for pn in panels2 for a in pn["yellow"]]
+    )
+    Y_LO = float(_allv.min()) - 0.05
+    Y_HI = float(_allv.max()) + 0.05
+
+    def _bx(cx, f):
+        left, right = cx - BOX_W / 2 + 0.08, cx + BOX_W / 2 - 0.08
+        return left + f * (right - left)
+
+    def _by(cy, v):
+        bot, top = cy - BOX_H / 2 + 0.1, cy + BOX_H / 2 - 0.1
+        return bot + (v - Y_LO) / (Y_HI - Y_LO) * (top - bot)
+
+    def _pts(sig, cx, cy, x0=0.0, x1=1.0):
+        fr = np.linspace(x0, x1, len(sig))
+        return [np.array([_bx(cx, f), _by(cy, v), 0.0]) for f, v in zip(fr, sig)]
+
+    def _line(sig, cx, cy, color, x0=0.0, x1=1.0):
+        m = VMobject(stroke_width=2.5, color=color)
+        m.set_points_as_corners(_pts(sig, cx, cy, x0, x1))
+        return m
+
+    def _subline(sig, lo, hi, cx, cy, color, x0=0.0, x1=1.0):
+        # The pattern-only sub-curve, sharing the full signal's coordinates so it
+        # sits exactly on top of the blue base line.
+        m = VMobject(stroke_width=2.5, color=color)
+        m.set_points_as_corners(_pts(sig, cx, cy, x0, x1)[lo : hi + 1])
+        return m
+
+    def _dots(sig, cx, cy, color):
+        return VGroup(*[Dot(p, radius=0.03, color=color) for p in _pts(sig, cx, cy)])
+
+    def _span(n):
+        return (n - 1) / (GRID - 1)
+
+    class MNIST1DTwoClass(Scene):
+        def construct(self):
+            bl = [pn["blue"] for pn in panels2]
+            yl = [pn["yellow"] for pn in panels2]
+            bd = [pn["bounds"] for pn in panels2]
+            centers = [(COL_X[d % COLS], ROW_Y[d // COLS]) for d in range(10)]
+
+            # Where a panel's signal sits horizontally at a given step: the padded
+            # signal hugs the left of the 72-grid; everything else fills the panel.
+            def span(step, d):
+                if step == 1:
+                    return 0.0, _span(len(bl[d][1]))
+                return 0.0, 1.0
+
+            def blue_line(step, d):
+                x0, x1 = span(step, d)
+                return _line(bl[d][step], *centers[d], BLUE, x0, x1)
+
+            def yellow_line(step, d):
+                x0, x1 = span(step, d)
+                lo, hi = bd[d][step]
+                return _subline(yl[d][step], lo, hi, *centers[d], YELLOW, x0, x1)
+
+            title = Text(
+                "two classes, five samples each — the pattern is buried",
+                font=PROSE_FONT,
+                weight="SEMIBOLD",
+                font_size=30,
+            )
+            title.to_edge(UP, buff=0.3)
+
+            def cap(i):
+                c = Text(captions2[i], font=PROSE_FONT, font_size=25, color=YELLOW)
+                c.next_to(title, DOWN, buff=0.22)
+                return c
+
+            caption = cap(0)
+            self.play(Write(title), Write(caption))
+
+            boxes, labels = VGroup(), VGroup()
+            for d in range(10):
+                cx, cy = centers[d]
+                box = Rectangle(width=BOX_W, height=BOX_H, color=GREY, stroke_width=1.5)
+                box.move_to([cx, cy, 0])
+                lbl = Text(str(panels2[d]["cls"]), font=MONO_FONT, font_size=20, color=GREY)
+                lbl.move_to([cx - BOX_W / 2 + 0.2, cy + BOX_H / 2 - 0.2, 0])
+                boxes.add(box)
+                labels.add(lbl)
+            self.play(Create(boxes), FadeIn(labels), run_time=1.2)
+
+            # Step 0 — the template is entirely the pattern, so entirely yellow.
+            # No blue yet (nothing is "not the pattern" until we pad).
+            yells = [yellow_line(0, d) for d in range(10)]
+            blues = [None] * 10
+            self.play(Create(VGroup(*yells)), run_time=2)
+            self.wait(1)
+
+            def morph(step, rt=1.7):
+                nonlocal caption, blues, yells
+                nc = cap(step)
+                nb = [blue_line(step, d) for d in range(10)]
+                ny = [yellow_line(step, d) for d in range(10)]
+                self.play(
+                    ReplacementTransform(caption, nc),
+                    *[ReplacementTransform(blues[d], nb[d]) for d in range(10)],
+                    *[ReplacementTransform(yells[d], ny[d]) for d in range(10)],
+                    run_time=rt,
+                )
+                caption, blues, yells = nc, nb, ny
+                self.wait(1)
+
+            # Step 1 — pad: the yellow bump compresses to the left while a blue zero
+            # tail is *drawn out* to the right, both at the same pace (so the yellow
+            # never lags behind the blue).
+            nc = cap(1)
+            anims = [ReplacementTransform(caption, nc)]
+            comp_yells, tails = [], []
+            for d in range(10):
+                cx, cy = centers[d]
+                tlen, plen = len(yl[d][0]), len(bl[d][1])
+                y_comp = _subline(
+                    yl[d][1], bd[d][1][0], bd[d][1][1], cx, cy, YELLOW, 0.0, _span(plen)
+                )
+                tail = _line(
+                    np.zeros(plen - tlen), cx, cy, BLUE, tlen / (GRID - 1), _span(plen)
+                )
+                anims += [ReplacementTransform(yells[d], y_comp), Create(tail)]
+                comp_yells.append(y_comp)
+                tails.append(tail)
+            self.play(*anims, run_time=1.8)
+            caption = nc
+            # Fuse the tail into the full padded blue base, kept under the yellow bump.
+            new_blues = []
+            for d in range(10):
+                full_blue = blue_line(1, d)
+                self.remove(tails[d])
+                self.add(full_blue)
+                self.add(comp_yells[d])  # keep yellow on top of the blue base
+                new_blues.append(full_blue)
+            blues, yells = new_blues, comp_yells
+            self.wait(1)
+
+            # Step 2 dilate, Step 3 scale.
+            morph(2, 1.8)
+            morph(3, 1.6)
+
+            # Step 4 — translate: slide the pattern (and the whole sample) to a new
+            # spot. The yellow pattern moves along, staying intact.
+            nc = cap(4)
+            slide = ValueTracker(0.0)
+            uf = 8
+            grid = np.linspace(0, 1, GRID)
+            ups = [np.interp(np.linspace(0, 1, GRID * uf), grid, bl[d][3]) for d in range(10)]
+            hiu = [bd[d][3][1] * uf for d in range(10)]
+
+            def make_slide(d):
+                cx, cy = centers[d]
+                up, k, h = ups[d], int(shifts2[d]), hiu[d]
+
+                def updater(_m):
+                    s = int(round(slide.get_value() * k * uf))
+                    pts = _pts(np.roll(up, s), cx, cy, 0.0, 1.0)
+                    blues[d].set_points_as_corners(pts)
+                    yells[d].set_points_as_corners(pts[s : h + s + 1])
+
+                return updater
+
+            for d in range(10):
+                blues[d].add_updater(make_slide(d))
+            self.play(
+                ReplacementTransform(caption, nc),
+                slide.animate.set_value(1.0),
+                run_time=2.2,
+            )
+            for d in range(10):
+                blues[d].clear_updaters()
+            caption = nc
+            nb = [blue_line(4, d) for d in range(10)]
+            ny = [yellow_line(4, d) for d in range(10)]
+            for d in range(10):
+                self.remove(blues[d], yells[d])
+                self.add(nb[d], ny[d])
+            blues, yells = nb, ny
+            self.wait(1)
+
+            # Step 5 noise (blue gets noisy, yellow pattern stays), Step 6 shear.
+            morph(5, 1.8)
+            morph(6, 1.6)
+
+            # Step 7 — subsample: the blue sample becomes 40 points scattered around
+            # the intact yellow pattern arc.
+            nc = cap(7)
+            bdots = [_dots(bl[d][7], *centers[d], BLUE) for d in range(10)]
+            ny = [yellow_line(7, d) for d in range(10)]
+            self.play(
+                ReplacementTransform(caption, nc),
+                *[ReplacementTransform(yells[d], ny[d]) for d in range(10)],
+                *[FadeIn(bdots[d]) for d in range(10)],
+                run_time=1.6,
+            )
+            self.play(*[FadeOut(blues[d]) for d in range(10)], run_time=1.0)
+            yells = ny
+
+            # Closing beat: the same yellow pattern lands in a different place every
+            # time — which is exactly what a convolution is built to find.
+            closer = Text(
+                "a convolution finds that pattern wherever it lands",
+                font=PROSE_FONT,
+                font_size=26,
+                color=YELLOW,
+            )
+            closer.to_edge(DOWN, buff=0.5)
+            self.play(Write(closer), run_time=1.2)
+            self.wait(2.5)
+
+    return (MNIST1DTwoClass,)
+
+
+@app.cell
+def _(mo, resolution):
+    _is_cli = mo.app_meta().mode == "script"
+    render_button2 = mo.ui.run_button(label="Render Two-Class Animation")
+    (
+        mo.hstack([resolution, render_button2], justify="start", gap=1)
+        if not _is_cli
+        else mo.md("*Auto-rendering in CLI mode...*")
+    )
+    return (render_button2,)
+
+
+@app.cell
+def _(MNIST1DTwoClass, mo, render_button2, resolution):
+    # Imports live inside the function so they don't collide with the first
+    # render cell's module-level manim/pathlib imports.
+    def _render():
+        from pathlib import Path
+        from manim import config
+
+        presets = {
+            "720p": {"height": 720, "width": 1280, "fps": 30, "folder": "720p30"},
+            "1080p": {"height": 1080, "width": 1920, "fps": 60, "folder": "1080p60"},
+            "4k": {"height": 2160, "width": 3840, "fps": 60, "folder": "2160p60"},
+        }
+        preset = presets[resolution.value]
+
+        out_dir = Path(__file__).parent / "media" if "__file__" in dir() else Path.cwd() / "media"
+        out_dir.mkdir(exist_ok=True)
+
+        config.media_dir = str(out_dir)
+        config.pixel_height = preset["height"]
+        config.pixel_width = preset["width"]
+        config.frame_rate = preset["fps"]
+        config.output_file = "MNIST1DTwoClass"  # distinct from the first video
+
+        MNIST1DTwoClass().render()
+
+        video_path = out_dir / "videos" / preset["folder"] / "MNIST1DTwoClass.mp4"
+        if video_path.exists():
+            with open(video_path, "rb") as f:
+                data = f.read()
+            return mo.vstack(
+                [mo.md(f"**Video saved to:** `{video_path}`"), mo.video(src=data)]
+            )
+        return mo.md("**Error:** Could not find rendered video")
+
+    _is_cli = mo.app_meta().mode == "script"
+    mo.stop(not _is_cli and not render_button2.value)
+    output2 = _render()
+    output2
     return
 
 
