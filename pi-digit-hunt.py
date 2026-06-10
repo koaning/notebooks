@@ -112,7 +112,10 @@ def _(decimals):
 
             def lock_on(target, start):                    # light up the match, then hold
                 found.append((start, start + len(target)))
-                self.wait(1.8)
+                # a brief no-movement play forces a live frame so the new highlight is
+                # actually drawn (a bare self.wait would just hold the pre-highlight frame).
+                self.play(t.animate.set_value(start), run_time=0.5)
+                self.wait(1.5)
 
             def accel_cruise_decel(a, ramp=0.45):
                 # trapezoidal velocity: constant acceleration up, a high-speed cruise,
