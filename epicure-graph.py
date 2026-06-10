@@ -69,7 +69,7 @@ def _(mo):
     |-------|-------|-----------|
     | **Cooc** | ingredient–ingredient only | "What do I cook with this?" |
     | **Chem** | compound metapaths only | "What shares its flavor chemistry?" |
-    | **Core** | both, with recipe walks **injected 10×** | mostly recipe context + some chemistry |
+    | **Core** | both | mostly recipe context + some chemistry |
 
     ### What does "10× I–I injection" mean?
 
@@ -189,6 +189,39 @@ def _(ingredient_names, mo):
         model_dropdown,
         seed_dropdown,
     )
+
+
+@app.cell
+def _(
+    cosine_threshold_slider,
+    full_graph_stats,
+    graph_k_slider,
+    hop_slider,
+    hop_word,
+    mo,
+    model_dropdown,
+    seed_dropdown,
+    subgraph,
+    truncated_note,
+):
+    mo.vstack(
+        [
+            mo.hstack([seed_dropdown, model_dropdown], gap=2),
+            mo.hstack(
+                [graph_k_slider, cosine_threshold_slider, hop_slider], gap=2
+            ),
+            mo.md(
+                f"Full graph (top-{graph_k_slider.value} per node, cosine $\\geq$ "
+                f"{cosine_threshold_slider.value}): **{full_graph_stats[1]}** edges across "
+                f"**{full_graph_stats[0]}** nodes.\n\n"
+                f"Displayed subgraph ({hop_slider.value} {hop_word} from "
+                f"**{seed_dropdown.value}**){truncated_note}: "
+                f"**{subgraph.number_of_nodes()}** nodes, "
+                f"**{subgraph.number_of_edges()}** edges."
+            ),
+        ]
+    )
+    return
 
 
 @app.cell(hide_code=True)
@@ -441,7 +474,7 @@ def _(
             ),
         ]
     )
-    return
+    return hop_word, truncated_note
 
 
 @app.cell(hide_code=True)
@@ -454,10 +487,10 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, models):
     core_model = models["Core"]
-    cuisine_poles = core_model.list_supervised_poles("cuisine:")
+    cuisine_poles = core_model.list_supervised_poles("usda_protein_g")
     cuisine_options = {
         key.split("/", 1)[-1].replace("_", " "): key for key in cuisine_poles
     }
