@@ -28,7 +28,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import marimo as mo
     import polars as pl
@@ -37,65 +37,6 @@ def _():
     from mpmath import mp
 
     return mo, mp
-
-
-@app.cell(hide_code=True)
-def _(mp):
-    import sys
-
-
-    def pi_digits(n):
-        """First n decimal digits of pi as a string (the digits after "3.")."""
-        sys.set_int_max_str_digits(max(n + 50, 4300))
-        mp.dps = n + 25
-        scaled = mp.floor(mp.pi * mp.mpf(10) ** n)
-        return str(int(scaled))[1:]
-
-
-    # k=4 needs ~390k digits on average (coupon-collector mean); 600k gives headroom.
-    N_DIGITS = 1_000_000
-    digits = pi_digits(N_DIGITS)
-    return N_DIGITS, digits, pi_digits
-
-
-@app.cell(hide_code=True)
-def _(N_DIGITS, digits, pi_digits):
-    def test_pi_digits_match_known_reference():
-        # pi's first 100 decimal digits (after the point), from a published source.
-        reference = (
-            "1415926535897932384626433832795028841971"
-            "6939937510582097494459230781640628620899"
-            "86280348253421170679"
-        )
-        assert pi_digits(100) == reference
-        assert pi_digits(10) == reference[:10]
-
-
-    def test_pi_digits_prefix_consistency():
-        # A longer computation must agree with shorter ones on the shared prefix,
-        # which catches rounding / precision corruption in the tail.
-        assert pi_digits(2_000)[:100] == pi_digits(100)
-        assert pi_digits(20_000)[:2_000] == pi_digits(2_000)
-
-
-    def test_pi_digits_shape():
-        out = pi_digits(777)
-        assert len(out) == 777
-        assert set(out) <= set("0123456789")
-
-
-    def test_notebook_digits_are_valid():
-        # validate the actual sequence the rest of the notebook relies on
-        reference = (
-            "1415926535897932384626433832795028841971"
-            "6939937510582097494459230781640628620899"
-            "86280348253421170679"
-        )
-        assert len(digits) == N_DIGITS
-        assert digits[:100] == reference
-        assert set(digits) <= set("0123456789")
-
-    return
 
 
 @app.cell(hide_code=True)
@@ -196,8 +137,62 @@ def _(digits, digits_slider, it, lim_lower, lim_upper):
     return
 
 
-@app.cell
-def _():
+@app.cell(hide_code=True)
+def _(mp):
+    import sys
+
+
+    def pi_digits(n):
+        """First n decimal digits of pi as a string (the digits after "3.")."""
+        sys.set_int_max_str_digits(max(n + 50, 4300))
+        mp.dps = n + 25
+        scaled = mp.floor(mp.pi * mp.mpf(10) ** n)
+        return str(int(scaled))[1:]
+
+
+    # k=4 needs ~390k digits on average (coupon-collector mean); 600k gives headroom.
+    N_DIGITS = 1_000_000
+    digits = pi_digits(N_DIGITS)
+    return N_DIGITS, digits, pi_digits
+
+
+@app.cell(hide_code=True)
+def _(N_DIGITS, digits, pi_digits):
+    def test_pi_digits_match_known_reference():
+        # pi's first 100 decimal digits (after the point), from a published source.
+        reference = (
+            "1415926535897932384626433832795028841971"
+            "6939937510582097494459230781640628620899"
+            "86280348253421170679"
+        )
+        assert pi_digits(100) == reference
+        assert pi_digits(10) == reference[:10]
+
+
+    def test_pi_digits_prefix_consistency():
+        # A longer computation must agree with shorter ones on the shared prefix,
+        # which catches rounding / precision corruption in the tail.
+        assert pi_digits(2_000)[:100] == pi_digits(100)
+        assert pi_digits(20_000)[:2_000] == pi_digits(2_000)
+
+
+    def test_pi_digits_shape():
+        out = pi_digits(777)
+        assert len(out) == 777
+        assert set(out) <= set("0123456789")
+
+
+    def test_notebook_digits_are_valid():
+        # validate the actual sequence the rest of the notebook relies on
+        reference = (
+            "1415926535897932384626433832795028841971"
+            "6939937510582097494459230781640628620899"
+            "86280348253421170679"
+        )
+        assert len(digits) == N_DIGITS
+        assert digits[:100] == reference
+        assert set(digits) <= set("0123456789")
+
     return
 
 
