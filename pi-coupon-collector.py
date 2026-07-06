@@ -22,8 +22,8 @@ def _(mo):
     mo.md(r"""
     # Is your birthday hiding inside $\pi$?
 
-    $\pi$\u2019s digits run on forever without repeating. Type a number below \u2014 your
-    **birth year** is a fun one \u2014 and we\u2019ll find where it first shows up.
+    $\pi$\'s digits run on forever without repeating. Type a number below (your
+    **birth year** is a fun one) and we'll find where it first shows up.
     """)
     return
 
@@ -55,8 +55,8 @@ def _(digits, mo, pi_query):
         pos = digits.find(s)
         if pos < 0:
             return mo.md(
-                f"**{s}** isn\u2019t in the first {len(digits):,} digits we computed \u2014 "
-                f"it\u2019s almost surely further out (we just stopped at {len(digits):,})."
+                f"**{s}** isn't in the first {len(digits):,} digits we computed "
+                f"it's almost surely further out (we just stopped at {len(digits):,})."
             )
         before = digits[max(0, pos - context) : pos]
         after = digits[pos + len(s) : pos + len(s) + context]
