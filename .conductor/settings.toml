@@ -1,0 +1,6 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "cp \"$CONDUCTOR_ROOT_PATH/.env\" ."
+archive = "sleep 5"
+run_mode = "concurrent"
