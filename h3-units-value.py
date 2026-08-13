@@ -5,7 +5,6 @@
 #     "polars",
 #     "altair",
 #     "mohtml==0.1.11",
-#     "playwright==1.62.0",
 # ]
 # requires-python = ">=3.12"
 # ///
