@@ -19,14 +19,11 @@ app = marimo.App(width="medium", sql_output="polars")
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    # HoMM3 units: best bang for your buck 🪙
+    # ⚔️ HoMM3 combat simulator
 
-    Which base unit gives the most value per gold? We pull units from the
-    [`h3_units`](https://datasette.exe.xyz/h3_units/units) datasette and compare a
-    few value-per-gold lenses. **Pick a level** below (and optionally hide
-    flying/ranged units, since the combat model is melee-only).
-
-    *The neutral Peasant and the duplicate Factory Halfling are excluded.*
+    Pit two creature stacks against each other at an equal gold budget and watch
+    the swings. **Pick a unit level** below and optionally hide flying/ranged units
+    (the combat model is melee-only). Everything reacts to these two controls.
     """)
     return
 
@@ -75,150 +72,25 @@ def _(DatasetteConnection):
 
 @app.cell
 def _(datasette, level_sel, melee_only, mo):
-    _conds = [
-        f"level = '{level_sel.value}'",
-        "name NOT IN ('Peasant', 'Halfling (Factory)')",
-    ]
-    if melee_only.value:
-        _conds += [
-            "COALESCE(special, '') NOT LIKE '%Flying%'",
-            "COALESCE(special, '') NOT LIKE '%Ranged%'",
-        ]
-    _where = " AND ".join(_conds)
     units = mo.sql(
         f"""
         SELECT name, town, level, gold, attack, defense, min_dmg, max_dmg,
                hp, speed, growth, ai_value, special, icon
         FROM units
-        WHERE {_where}
+        WHERE level = '{level_sel.value}'
+          AND name NOT IN ('Peasant', 'Halfling (Factory)')
+          AND (
+            '{melee_only.value}' = 'False'
+            OR (
+              COALESCE(special, '') NOT LIKE '%Flying%'
+              AND COALESCE(special, '') NOT LIKE '%Ranged%'
+            )
+          )
         ORDER BY gold
         """,
         engine=datasette,
     )
     return (units,)
-
-
-@app.cell(hide_code=True)
-def _(pl, units):
-    # Everything here is built from ai_value — the game's own aggregate power score —
-    # so there are no hand-picked stat weights. Three ai_value-based lenses:
-    #   value_per_gold        = ai_value / gold          (per-coin efficiency)
-    #   weekly_value          = ai_value * growth        (dwelling throughput)
-    #   value_growth_per_gold = ai_value * growth / gold (efficiency x production)
-    scored = units.with_columns(
-        icon=pl.lit("data:image/png;base64,") + pl.col("icon").struct.field("encoded"),
-    ).with_columns(
-        value_per_gold=(pl.col("ai_value") / pl.col("gold")).round(2),
-        weekly_value=pl.col("ai_value") * pl.col("growth"),
-        value_growth_per_gold=(
-            pl.col("ai_value") * pl.col("growth") / pl.col("gold")
-        ).round(1),
-    )
-
-    scored.select(
-        "name", "town", "gold", "ai_value", "growth",
-        "value_per_gold", "weekly_value", "value_growth_per_gold",
-    ).sort("value_growth_per_gold", descending=True)
-    return (scored,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ### Three lenses, all built on `ai_value`
-
-    I dropped the earlier `combat_score` (attack + defense + avg_dmg + hp) — you were
-    right to distrust it: it sums stats on different scales with weights I invented and
-    ignores abilities. These three lenses use only **`ai_value`**, the game's own power score:
-
-    - **Value per gold** = `ai_value ÷ gold` — power per coin. Growth-independent.
-    - **Weekly value** = `ai_value × growth` — power *one dwelling* fields per week (absolute).
-    - **Value × growth per gold** = `ai_value × growth ÷ gold` — your metric: per-coin
-      efficiency **weighted by weekly production**, so cheap high-growth units rise
-      (equals `value_per_gold × growth`).
-
-    Pick a lens below to re-rank.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    METRICS = {
-        "Value per gold  (ai_value ÷ gold)": "value_per_gold",
-        "Weekly value  (ai_value × growth)": "weekly_value",
-        "Value × growth per gold  (ai_value × growth ÷ gold)": "value_growth_per_gold",
-    }
-    metric = mo.ui.dropdown(
-        options=METRICS,
-        value="Value × growth per gold  (ai_value × growth ÷ gold)",
-        label="Rank by",
-    )
-    metric
-    return METRICS, metric
-
-
-@app.cell(hide_code=True)
-def _(METRICS, alt, metric, mo, scored):
-    col = metric.value
-    label = next(k for k, v in METRICS.items() if v == col)
-    ranked = scored.sort(col, descending=True)
-    top_name = ranked["name"][0]
-
-    bars = (
-        alt.Chart(ranked)
-        .mark_bar()
-        .encode(
-            x=alt.X(col, title=label),
-            y=alt.Y("name", sort="-x", title=None),
-            color=alt.condition(
-                alt.datum.name == top_name,
-                alt.value("#2563eb"),
-                alt.value("#cbd5e1"),
-            ),
-            tooltip=[
-                "name", "town", "gold", "ai_value", "growth",
-                "value_per_gold", "weekly_value", "value_growth_per_gold",
-            ],
-        )
-        .properties(height=360, title=f"lvl-1 base units ranked by {label}")
-    )
-    mo.ui.altair_chart(bars)
-    return
-
-
-@app.cell(hide_code=True)
-def _(metric, mo, scored):
-    mo.ui.table(
-        scored.sort(metric.value, descending=True).select(
-            "icon", "name", "town", "gold", "ai_value", "growth",
-            "value_per_gold", "weekly_value", "value_growth_per_gold",
-        ),
-        format_mapping={
-            "icon": lambda v: mo.image(
-                v, width=48, style={"image-rendering": "pixelated"}
-            )
-        },
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(level_sel, melee_only, mo, scored):
-    _v = scored.sort("value_per_gold", descending=True).row(0, named=True)
-    _w = scored.sort("weekly_value", descending=True).row(0, named=True)
-    _g = scored.sort("value_growth_per_gold", descending=True).row(0, named=True)
-    _tag = " · melee only" if melee_only.value else ""
-    mo.md(
-        f"""
-        ### Verdict — level {level_sel.value}{_tag}  ({len(scored)} units)
-
-        - 🥇 **Value per gold → {_v['name']} ({_v['town']})** — {_v['ai_value']} ÷ {_v['gold']} = **{_v['value_per_gold']}**.
-        - 🏭 **Weekly throughput → {_w['name']} ({_w['town']})** — {_w['ai_value']} × {_w['growth']} = **{_w['weekly_value']:,}**/week.
-        - ⚖️ **Value × growth per gold → {_g['name']} ({_g['town']})** — **{_g['value_growth_per_gold']}**.
-        """
-    )
-    return
 
 
 @app.cell(hide_code=True)
@@ -448,7 +320,6 @@ def _(
     div,
     img,
     mo,
-    scored,
     simulate,
     span,
     table,
@@ -456,6 +327,7 @@ def _(
     th,
     tr,
     unit_stats,
+    units,
 ):
     # Round-robin at the same gold budget, ROW UNIT ATTACKS (strikes first).
     # This is deliberately asymmetric: cell (i, j) is the fight where i swings first,
@@ -465,7 +337,10 @@ def _(
     # both green => whoever attacks wins (initiative decides). Uses the `budget` knob.
     mbud = budget.value
     _names0 = list(unit_stats)
-    icons = dict(zip(scored["name"].to_list(), scored["icon"].to_list()))
+    icons = {
+        r["name"]: "data:image/png;base64," + r["icon"]["encoded"]
+        for r in units.to_dicts()
+    }
 
 
     def _icon(n, px=24):
@@ -511,8 +386,7 @@ def _(
 
 
     head = tr(
-        th(div("attacker ↓", style="font-size:10px;color:#6b7280;transform:rotate(-90deg)"),
-           style="padding:2px"),
+        th("", style="padding:2px;width:1px"),
         *[th(_icon(n, 26), style="padding:2px;vertical-align:bottom") for n in order],
         th("W", title="opponents beaten when attacking",
            style="font-size:10px;padding:2px 6px;color:#6b7280"),
@@ -551,7 +425,7 @@ def _(
             f"Asymmetric on purpose — striking first is an advantage. **{len(initiative)}** "
             f"matchup(s) are decided purely by who attacks (both directions green)."
         ),
-        mo.Html(str(grid_tbl)),
+        mo.Html(f'<div style="display:flex;justify-content:flex-start;overflow-x:auto">{grid_tbl}</div>'),
         mo.Html(str(legend)),
     ])
     return
