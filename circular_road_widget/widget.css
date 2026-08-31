@@ -1,0 +1,22 @@
+.circular-road-root {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+}
+
+.circular-road-canvas {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: grab;
+}
+
+.circular-road-canvas:active {
+  cursor: grabbing;
+}
+
+@media (prefers-color-scheme: dark) {
+  .circular-road-canvas {
+    border-color: #444;
+  }
+}
