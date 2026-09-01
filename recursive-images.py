@@ -25,9 +25,9 @@ def _():
     import marimo as mo
     import numpy as np
     from PIL import Image
-    from wigglystuff import Paint
+    from wigglystuff import HoverSlider, Paint
 
-    return Image, Paint, base64, io, math, mo, np
+    return HoverSlider, Image, Paint, base64, io, math, mo, np
 
 
 @app.cell
@@ -69,13 +69,21 @@ def _(mo, paint, rule):
 
 
 @app.cell
-def _(mo):
-    depth = mo.ui.slider(0, 20, value=6, label="depth")
+def _(HoverSlider, mo):
+    depth = mo.ui.anywidget(
+        HoverSlider(start=0, stop=20, step=1, value=6, label="depth")
+    )
+    angle_noise = mo.ui.anywidget(
+        HoverSlider(start=0, stop=45, step=1, value=0, label="angle noise (°)")
+    )
+    size_noise = mo.ui.anywidget(
+        HoverSlider(start=0, stop=0.5, step=0.01, value=0, label="size noise")
+    )
     background = mo.ui.dropdown(
         ["transparent", "white", "black"], value="transparent", label="background"
     )
-    mo.hstack([depth, background], justify="start", gap=1)
-    return background, depth
+    mo.vstack([depth, angle_noise, size_noise, background], gap=0.5)
+    return angle_noise, background, depth, size_noise
 
 
 @app.cell(hide_code=True)
@@ -115,24 +123,28 @@ def _(Image, base64, io, math, np):
         coeffs = inv_coeffs(k, math.radians(pa), (px * W, py * W), (pw / 2, ph / 2))
         return warp(parent_img, coeffs, W)
 
-    def render_ifs(parent_img, parent, children, depth, W=640):
+    def render_ifs(
+        parent_img, parent, children, depth,
+        angle_noise=0.0, size_noise=0.0, W=640, seed=0,
+    ):
         if parent_img is None:
             return None
-        seed = seed_canvas(parent_img, parent, W)
+        base = seed_canvas(parent_img, parent, W)
         px, py, ps, pa = parent
-        maps = []
-        for cx, cy, cs, ca in children:
-            if ps <= 1e-9 or cs <= 1e-9:
-                continue
-            maps.append(
-                inv_coeffs(cs / ps, math.radians(ca - pa), (cx * W, cy * W), (px * W, py * W))
-            )
-        canvas = seed
+        kids = [(cx, cy, cs, ca) for cx, cy, cs, ca in children if ps > 1e-9 and cs > 1e-9]
+        rng = np.random.default_rng(seed)
+        canvas = base
         for _ in range(depth):
-            if not maps:
+            if not kids:
                 break
-            acc = seed.copy()
-            for coeffs in maps:
+            acc = base.copy()
+            for cx, cy, cs, ca in kids:
+                # Perturb each child's angle/size afresh at every level (organic jitter).
+                a = ca + rng.normal(0.0, angle_noise) if angle_noise else ca
+                s = cs * max(1.0 + rng.normal(0.0, size_noise), 1e-3) if size_noise else cs
+                coeffs = inv_coeffs(
+                    s / ps, math.radians(a - pa), (cx * W, cy * W), (px * W, py * W)
+                )
                 acc = Image.alpha_composite(acc, warp(canvas, coeffs, W))
             canvas = acc
         return canvas
@@ -155,9 +167,24 @@ def _(Image, base64, io, math, np):
 
 
 @app.cell
-def _(background, decode_png, depth, mo, paint, present, render_ifs, rule):
+def _(
+    angle_noise,
+    background,
+    decode_png,
+    depth,
+    mo,
+    paint,
+    present,
+    render_ifs,
+    rule,
+    size_noise,
+):
     parent_img = decode_png(paint.get_base64())
-    result = render_ifs(parent_img, rule.parent, rule.children, depth.value)
+    result = render_ifs(
+        parent_img, rule.parent, rule.children, int(depth.value["hover_value"]),
+        angle_noise=angle_noise.value["hover_value"],
+        size_noise=size_noise.value["hover_value"],
+    )
     mo.stop(result is None, mo.md("*Draw a parent to see the recursion.*"))
     present(result, background.value)
     return
