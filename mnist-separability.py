@@ -12,7 +12,7 @@
 
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.23.9"
 app = marimo.App(width="medium")
 
 
@@ -174,6 +174,7 @@ def _(
     def check_pair(X, y, a, b):
         mask = (y == a) | (y == b)
         clf = LogisticRegression(max_iter=10000, C=np.inf, solver="lbfgs")
+        # clf = LogisticRegression(max_iter=1_000, tol=1e-30, penalty=None)
         clf.fit(X[mask], y[mask])
         return (clf.predict(X[mask]) == y[mask]).all()
 
