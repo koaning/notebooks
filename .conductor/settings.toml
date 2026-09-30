@@ -1,6 +1,6 @@
 "$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
 
 [scripts]
-setup = "cp \"$CONDUCTOR_ROOT_PATH/.env\" ."
+setup = "if [ -f \"$CONDUCTOR_ROOT_PATH/.env\" ]; then cp \"$CONDUCTOR_ROOT_PATH/.env\" .; fi"
 archive = "sleep 5"
 run_mode = "concurrent"
