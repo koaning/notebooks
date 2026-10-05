@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.24.0"
+__generated_with = "0.25.0"
 app = marimo.App(width="medium")
 
 
@@ -69,6 +69,11 @@ def _(HoverSlider, mo):
     sigma = hslider(1, 60, 20, "guess noise (sigma, $)")
     V = hslider(20, 200, 100, "actual value (V, $)")
     n = hslider(2, 60, 8, "number of candidates (n)")
+    n_sims = hslider(200, 8000, 3000, "number of auctions", step=200)
+    run_btn = mo.ui.button(label="🎲 run again", value=0, on_click=lambda v: v + 1)
+
+    # built here so the cell that shows it doesn't reference `n` and re-run on every change
+    sim_controls = mo.hstack([n_sims, n, run_btn], justify="start")
 
     mo.hstack(
         [
@@ -76,7 +81,7 @@ def _(HoverSlider, mo):
             mo.vstack([V, n]),
         ]
     )
-    return V, hslider, mean, n, sigma
+    return V, hslider, mean, n, n_sims, run_btn, sigma, sim_controls
 
 
 @app.cell
@@ -177,11 +182,9 @@ def _(NormalDist):
 
 
 @app.cell
-def _(hslider, mo):
-    n_sims = hslider(200, 8000, 3000, "number of auctions", step=200)
-    run_btn = mo.ui.button(label="🎲 run again", value=0, on_click=lambda v: v + 1)
-    mo.hstack([n_sims, run_btn])
-    return n_sims, run_btn
+def _(sim_controls):
+    sim_controls
+    return
 
 
 @app.cell
@@ -203,7 +206,7 @@ def _(Vval, alt, mo, mu_val, n_sims, n_val, pl, run_btn, sig_val, simulate):
         .encode(
             x=alt.X(
                 "winning_bid:Q",
-                bin=alt.Bin(maxbins=50),
+                bin=alt.Bin(maxbins=50, extent=[0, 320]),
                 title="winning bid ($)",
                 scale=alt.Scale(domain=[0, 320], clamp=True),
             ),
@@ -440,7 +443,7 @@ def _(
         .encode(
             x=alt.X(
                 "winning_bid:Q",
-                bin=alt.Bin(maxbins=50),
+                bin=alt.Bin(maxbins=50, extent=[0, 320]),
                 title="winning bid ($)",
                 scale=alt.Scale(domain=[0, 320], clamp=True),
             ),
